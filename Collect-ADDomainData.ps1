@@ -163,13 +163,13 @@ $sessionOpt = New-PSSessionOption -NoMachineProfile
 $sessions = New-PSSession -ComputerName $computers.Name -SessionOption $sessionOpt
 
 
-<#
+
 foreach($computer in $failedSessions) {
     $cimSessOption = New-CimSessionOption -Protocol Dcom
-    $cimSession = New-CimSession -ComputerName $computer -SessionOption $cimSessOption
+    $cimSession = New-CimSession -ComputerName <name> -SessionOption $cimSessOption
     Invoke-CimMethod -ClassName 'Win32_Process' -MethodName 'Create' -CimSession $cimSession -Arguments @{CommandLine = "powershell Start-Process powershell -ArgumentList 'Enable-PSRemoting -Force'"}
 }
-#>
+
 
 
 <#
@@ -183,13 +183,6 @@ Invoke-Command -Session $sessions -ScriptBlock ${function:getLocalGroupMembers} 
 # Local user accounts
 Invoke-Command -Session $sessions -ScriptBlock ${function:getLocalUsers} | 
 	Export-Csv -Path local_users.csv -NoTypeInformation
-
-<#
-# Check running executables for malware via VirusTotal
-# This query uses a 15 second timeout to ensure only 4 queries are submitted a minute and only unique hashes are queried
-
-$A = $( foreach ($process in Get-WmiObject win32_process | where {$_.ExecutablePath -notlike ""}) {Get-FileHash $process.ExecutablePath | select Hash -ExpandProperty Hash}) |Sort-Object| Get-Unique -AsString; foreach ($process in $A) {Invoke-RestMethod -Method 'POST' -Uri 'https://www.virustotal.com/vtapi/v2/file/report' -Body @{ resource =($process); apikey = "[VTAPIKey]"};Start-Sleep -Seconds 15;} 
-#>
 
 # Processes
 Invoke-Command -Session $sessions -ScriptBlock {Get-Process -IncludeUserName | Select-Object Name,Id,Path,UserName,Company,Description,ProductVersion,StartTime} |
@@ -208,11 +201,11 @@ Invoke-Command -Session $sessions -ScriptBlock {Get-ChildItem -Path 'C:\Users\*\
 	Export-Csv -Path files.csv -NoTypeInformation
 
 # 64 bit programs
-Invoke-Command -Session $sessions -ScriptBlock {Get-ChildItem -Path 'C:\Program Files' | Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'64-bit'}} |
+Invoke-Command -Session $sessions -ScriptBlock {Get-ChildItem -Path 'C:\Program Files' | Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'64-bit'}}} |
 	Export-Csv -Path programs.csv -NoTypeInformation
 
 # 32 bit programs
-Invoke-Command -Session $sessions -ScriptBlock {Get-ChildItem -Path 'C:\Program Files (x86)' | Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'32-bit'}} |
+Invoke-Command -Session $sessions -ScriptBlock {Get-ChildItem -Path 'C:\Program Files (x86)' | Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'32-bit'}}} |
 	Export-Csv -Path programs.csv -NoTypeInformation
 
 # Network connections
