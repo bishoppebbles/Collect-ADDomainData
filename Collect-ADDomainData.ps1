@@ -8,9 +8,9 @@
 .EXAMPLE
     .\Collect-ADDomainData.ps1 -OUName <ou_name>
 .NOTES
-    Version 1.0
+    Version 1.0.1
     Author: Sam Pursglove
-    Last modified: 08 JUN 2023
+    Last modified: 09 JUN 2023
 
     **Steps to enable PS Remoting via Group Policy**
 
@@ -29,7 +29,7 @@
 #>
 
 param (
-    [Parameter(Position=0, Mandatory, HelpMessage='Target OU name')]
+    [Parameter(Position=0, HelpMessage='Target OU name')]
     [string]$OUName
 )
 
@@ -90,6 +90,28 @@ function getLocalGroupMembers {
                 } 
             }
         }
+
+        <# ***DRAFT*** code to use core data types (arrays and hashtables) instead of a pscustom object
+           Returns an array of hashtables
+        
+        $groups = Get-LocalGroup
+
+        # get the membership for all local groups
+        # NOTE!!!! cannot use [pscustomobject] in remoting b/c of constrained language mode limits to core types
+        foreach ($group in $groups) {
+            $localGroupMem = Get-LocalGroupMember $group
+            foreach($member in $localGroupMem) {
+                @( @{GroupName=$group.Name}
+                   @{Name=$member.Name.split('\')[1]}
+                   @{Domain=$member.Name.split('\')[0]}
+                   @{SID=$member.SID}
+                   @{PrincipalSource=$member.PrincipalSource}
+                   @{ObjectClass=$member.ObjectClass}
+                )
+            }
+        }
+
+        #>
     
     # run if the Get-Local* cmdlets are not installed on the remote systems
     } catch [System.Management.Automation.RuntimeException] {
@@ -167,7 +189,11 @@ function getLocalGroupMembers {
 <#
 Build PowerShell sessions for query reuse
 #>
-$distinguishedName = 'OU=' + $OUName + ',' + (Get-ADDomain).DistinguishedName
+if($OUName) {
+    $distinguishedName = 'OU=' + $OUName + ',' + (Get-ADDomain).DistinguishedName
+} else {
+    $distinguishedName = (Get-ADDomain).DistinguishedName
+}
 
 # Pull all computer objects listed in the Directory for the designated DN
 $computers = Get-ADComputer -Filter * -Properties DistinguishedName,Enabled,IPv4Address,LastLogonDate,Name,OperatingSystem,SamAccountName -SearchBase $distinguishedName
@@ -183,10 +209,23 @@ $sessions = New-PSSession -ComputerName $computers.Name -SessionOption $sessionO
 
 <#
 # Attempt to enable WinRM/PS remoting via WMI for systems that don't have it configured
-foreach($computer in $failedSessions) {
-    $cimSessOption = New-CimSessionOption -Protocol Dcom
-    $cimSession = New-CimSession -ComputerName <name> -SessionOption $cimSessOption
-    Invoke-CimMethod -ClassName 'Win32_Process' -MethodName 'Create' -CimSession $cimSession -Arguments @{CommandLine = "powershell Start-Process powershell -ArgumentList 'Enable-PSRemoting -Force'"}
+$comps = <comp_name_array>
+$cimSessOption = New-CimSessionOption -Protocol Dcom
+
+foreach($c in $comps) {
+    if(Test-Connection $c -Count 2) {          
+        $cimSession = New-CimSession -ComputerName $c -SessionOption $cimSessOption
+        Invoke-CimMethod -ClassName 'Win32_Process' -MethodName 'Create' -CimSession $cimSession -Arguments @{CommandLine = "powershell Start-Process powershell -ArgumentList 'Enable-PSRemoting -Force'"} | Out-Null
+        $cimSession | Remove-CimSession
+
+        if(Test-WSMan -ComputerName $c) {
+            Write-Output "PS Remoting was enabled on $c"
+        } else {
+            Write-Output "PS Remoting was not enabled on $c"
+        }
+    } else {
+        Write-Output "$c is not reach able"
+    }
 }
 #>
 
@@ -247,7 +286,8 @@ function Collect-LocalSystemData {
 	    Export-Csv -Path local_admins_group.csv -Append -NoTypeInformation
 
     # Local user accounts
-    getLocalUsers |
+    getLocalUsers | 
+        Select-Object Name,SID,Enabled,PasswordRequired,PasswordChangeable,PrincipalSource,Description,PasswordLastSet,LastLogon,@{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},PSShowComputerName,RunspaceID |
 	    Export-Csv -Path local_users.csv -Append -NoTypeInformation
 
     # Processes
@@ -261,36 +301,37 @@ function Collect-LocalSystemData {
     }
 
     $localProcesses |
-        Select-Object Name,Id,Path,@{Name='Hash'; Expression={if($_.Path -notlike '') {(Get-FileHash $_.Path).Hash}}},UserName,Company,Description,ProductVersion,StartTime |
+        Select-Object Name,Id,Path,@{Name='Hash'; Expression={if($_.Path -notlike '') {(Get-FileHash $_.Path).Hash}}},UserName,Company,Description,ProductVersion,StartTime,@{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},PSShowComputerName,RunspaceID |
 	    Export-Csv -Path processes.csv -Append -NoTypeInformation
 
     # Scheduled tasks
     Get-ScheduledTask |
-        Select-Object TaskName,State,Author,TaskPath,Description |
+        Select-Object TaskName,State,Author,TaskPath,Description,@{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},PSShowComputerName,RunspaceID |
 	    Export-Csv -Path scheduled_tasks.csv -Append -NoTypeInformation
 
     # Services
     Get-Service |
-        Select-Object Name,DisplayName,Status,StartType,ServiceType |
+        Select-Object Name,DisplayName,Status,StartType,ServiceType,@{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},PSShowComputerName,RunspaceID |
 	    Export-Csv -Path services.csv -Append -NoTypeInformation
 
     # Downloads, Documents, and Desktop files
     Get-ChildItem -Path 'C:\Users\*\Downloads\','C:\Users\*\Documents\','C:\Users\*\Desktop\' -Recurse |
-        Select-Object Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes |
+        Select-Object Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},PSShowComputerName,RunspaceID |
 	    Export-Csv -Path files.csv -Append -NoTypeInformation
 
     # 64 bit programs
     Get-ChildItem -Path 'C:\Program Files' |
-        Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'64-bit'}} |
+        Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'64-bit'}},@{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},PSShowComputerName,RunspaceID |
 	    Export-Csv -Path programs.csv -Append -NoTypeInformation
 
     # 32 bit programs
     Get-ChildItem -Path 'C:\Program Files (x86)' |
-        Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'32-bit'}} |
+        Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'32-bit'}},@{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},PSShowComputerName,RunspaceID |
 	    Export-Csv -Path programs.csv -Append -NoTypeInformation
 
     # Network connections
-    netConnects |
+    netConnects | 
+        Select-Object Date,Time,LocalAddress,LocalPort,RemoteAddress,RemotePort,State,OwningProcess,ProcessName,@{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},PSShowComputerName,RunspaceID |
         Export-Csv -Path net.csv -Append -NoTypeInformation
 }
 
