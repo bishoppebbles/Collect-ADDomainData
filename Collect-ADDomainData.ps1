@@ -238,7 +238,7 @@ Pull remote system data
 # !!!! Doesn't work remotely (see comments in the fuction above
 <#
 Invoke-Command -Session $sessions -ScriptBlock ${function:getLocalGroupMembers} |
-    Export-Csv -Path local_admins_group.csv -NoTypeInformation
+    Export-Csv -Path local_groups.csv -NoTypeInformation
 #>
 
 # Local user accounts
@@ -283,7 +283,7 @@ Remove-PSSession -Session $sessions
 function Collect-LocalSystemData {
     # Local Administrators group membership
     getLocalGroupMembers |
-	    Export-Csv -Path local_admins_group.csv -Append -NoTypeInformation
+	    Export-Csv -Path local_groups.csv -Append -NoTypeInformation
 
     # Local user accounts
     getLocalUsers | 
