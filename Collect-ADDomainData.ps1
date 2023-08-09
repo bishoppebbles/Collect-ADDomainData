@@ -8,9 +8,9 @@
 .EXAMPLE
     .\Collect-ADDomainData.ps1 -OUName <ou_name>
 .NOTES
-    Version 1.0.1
+    Version 1.0.2
     Author: Sam Pursglove
-    Last modified: 09 JUN 2023
+    Last modified: 09 August 2023
 
     **Steps to enable PS Remoting via Group Policy**
 
@@ -58,10 +58,10 @@ function netConnects {
 function getLocalUsers {
     try {
         Get-LocalUser |
-            Select-Object Name,SID,Enabled,PasswordRequired,@{Name='PasswordChangeable'; Expression={$_.UserMayChangePassword}},PrincipalSource,Description,PasswordLastSet,LastLogon
+            Select-Object Name,SID,@{Name='RID'; Expression={[regex]::Match($_.SID, '\d+$').Value}},Enabled,PasswordRequired,@{Name='PasswordChangeable'; Expression={$_.UserMayChangePassword}},PrincipalSource,Description,PasswordLastSet,LastLogon
     } catch [System.Management.Automation.RuntimeException] {       
         Get-CimInstance -ClassName Win32_UserAccount -Filter "LocalAccount='True'" -Property * | 
-            Select-Object Name,SID,@{Name='Enabled'; Expression={if([bool]$_.Disabled) {'False'} else {'True'}}},PasswordRequired,PasswordChangeable,@{Name='PrincipalSource';Expression={if([bool]$_.LocalAccount) {'Local'}}},Description,@{Name='PasswordLastSet'; Expression={'Unavailable'}},@{Name='LastLogon'; Expression={'Unavailable'}}
+            Select-Object Name,SID,@{Name='RID'; Expression={[regex]::Match($_.SID, '\d+$').Value}},@{Name='Enabled'; Expression={if([bool]$_.Disabled) {'False'} else {'True'}}},PasswordRequired,PasswordChangeable,@{Name='PrincipalSource';Expression={if([bool]$_.LocalAccount) {'Local'}}},Description,@{Name='PasswordLastSet'; Expression={'Unavailable'}},@{Name='LastLogon'; Expression={'Unavailable'}}
     }
 }
 
