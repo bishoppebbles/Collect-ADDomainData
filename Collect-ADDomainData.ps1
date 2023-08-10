@@ -8,9 +8,9 @@
 .EXAMPLE
     .\Collect-ADDomainData.ps1 -OUName <ou_name>
 .NOTES
-    Version 1.0.2
+    Version 1.0.3
     Author: Sam Pursglove
-    Last modified: 09 August 2023
+    Last modified: 10 August 2023
 
     **Steps to enable PS Remoting via Group Policy**
 
@@ -343,18 +343,15 @@ Pull Active Directory datasets
 Get-ADUser -Filter * -Properties AccountExpirationDate,AccountNotDelegated,AllowReversiblePasswordEncryption,CannotChangePassword,DisplayName,Name,Enabled,LastLogonDate,LockedOut,PasswordExpired,PasswordNeverExpires,PasswordNotRequired,SamAccountName,SmartcardLogonRequired -SearchBase $distinguishedName |
 	Export-Csv -Path domain_users.csv -NoTypeInformation
 
-# Get privileged domain account group memberships
-$adminMemberOf = New-Object System.Collections.ArrayList
+# Get all OU groups and their members
+$adGroupMembers = New-Object System.Collections.ArrayList
 $groups = Get-ADGroup -Filter * -Properties * -SearchBase $distinguishedName
 
 foreach($group in $groups) {
     Get-ADGroupMember -Identity $group.SamAccountName -Recursive | 
-	    Where-Object {
-	        ($_.objectClass -like "user") -and 
-		    ($_.SamAccountName -like "*adm*" -or $_.SamAccountName -like "*admin*" -or $_.SamAccountName -like "*isso*")
-	    } |
+	    Where-Object {$_.objectClass -like "user"} |
         ForEach-Object {
-            $adminMemberOf.Add([PSCustomObject]@{
+            $adGroupMembers.Add([PSCustomObject]@{
                 UserSamAccountName  = $_.SamAccountName
                 UserDN              = $_.distinguishedName
                 UserName            = $_.name
@@ -364,4 +361,4 @@ foreach($group in $groups) {
         }
 }
 
-$adminMemberOf | Export-Csv -Path domain_admins.csv -NoTypeInformation
+$adGroupMembers | Export-Csv -Path ad_group_members.csv -NoTypeInformation
