@@ -8,9 +8,9 @@
 .EXAMPLE
     .\Collect-ADDomainData.ps1 -OUName <ou_name>
 .NOTES
-    Version 1.0.3
+    Version 1.0.4
     Author: Sam Pursglove
-    Last modified: 10 August 2023
+    Last modified: 25 August 2023
 
     **Steps to enable PS Remoting via Group Policy**
 
@@ -115,7 +115,7 @@ function getLocalGroupMembers {
     
     # run if the Get-Local* cmdlets are not installed on the remote systems
     } catch [System.Management.Automation.RuntimeException] {
-        Write-Output "In the CATCH!"
+        #Write-Output "In the CATCH!"
 
         # convert the provided value to a readable SID
         function ConvertTo-SID {
@@ -202,32 +202,39 @@ $computers = Get-ADComputer -Filter * -Properties DistinguishedName,Enabled,IPv4
 $computers | Export-Csv -Path domain_computers.csv -NoTypeInformation
 
 # Create PS sessions for Windows only systems
+$servers = $computers | Where-Object {$_.OperatingSystem -like "Windows Server*"}
 $computers = $computers | Where-Object {$_.OperatingSystem -like "Windows*"}
 $sessionOpt = New-PSSessionOption -NoMachineProfile # Minimize your presence and don't create a user profile on every system (e.g., C:\Users\<username>)
 $sessions = New-PSSession -ComputerName $computers.Name -SessionOption $sessionOpt # Create reusable PS Sessions
 
 
 <#
+    Get-Item WSMan:\localhost\Client\TrustedHosts
+    Clear-Item WSMan:\localhost\Client\TrustedHosts
+    Set-Item WSMan:\localhost\Client\TrustedHosts -Value <*|*.domain|ip|hostname.domain>
+#>
+
+
 # Attempt to enable WinRM/PS remoting via WMI for systems that don't have it configured
-$comps = <comp_name_array>
 $cimSessOption = New-CimSessionOption -Protocol Dcom
 
-foreach($c in $comps) {
-    if(Test-Connection $c -Count 2) {          
-        $cimSession = New-CimSession -ComputerName $c -SessionOption $cimSessOption
+foreach($c in $computers) {
+    if(Test-WSMan -ComputerName $c.Name -ErrorAction SilentlyContinue) {
+        Write-Output "PS Remoting is enabled on $($c.Name)"        
+    } else {
+        Write-Output "PS Remoting is not enabled on $($c.Name). Trying to enable using WMI and DCOM."
+        $cimSession = New-CimSession -ComputerName $c.Name -SessionOption $cimSessOption
         Invoke-CimMethod -ClassName 'Win32_Process' -MethodName 'Create' -CimSession $cimSession -Arguments @{CommandLine = "powershell Start-Process powershell -ArgumentList 'Enable-PSRemoting -Force'"} | Out-Null
         $cimSession | Remove-CimSession
 
-        if(Test-WSMan -ComputerName $c) {
-            Write-Output "PS Remoting was enabled on $c"
+        if(Test-WSMan -ComputerName $c.Name -ErrorAction SilentlyContinue) {
+            Write-Output "SUCCESS: PS Remoting was enabled on $($c.Name)"
         } else {
-            Write-Output "PS Remoting was not enabled on $c"
+            Write-Output "FAILURE: PS Remoting was not enabled on $($c.Name)"
         }
-    } else {
-        Write-Output "$c is not reach able"
     }
 }
-#>
+
 
 
 <#
@@ -272,7 +279,13 @@ Invoke-Command -Session $sessions -ScriptBlock {Get-ChildItem -Path 'C:\Program 
 # Network connections
 Invoke-Command -Session $sessions -ScriptBlock ${function:netConnects} |
     Export-Csv -Path net.csv -Append -NoTypeInformation
-    
+
+# Server features
+<#
+# need to pull only from servers - TODO: fix sessions
+Invoke-Command -Session $sessions -ScriptBlock {Get-WindowsFeature | Where-Object {$_.InstallState -eq "Installed"} | Select-Object DisplayName,InstallState,Path,Parent,Depth} |
+    Export-Csv -Path net.csv -Append -NoTypeInformation
+#>
 Remove-PSSession -Session $sessions
 
 
