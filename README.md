@@ -2,7 +2,7 @@
 This is a collection of commands to pull a variety of datasets in an Active Directory (AD) domain environment.  If you're familiar with the tool Hyena, this reproduces some of its collection capability but can pull data exponentially faster due to the parallel operation of PowerShell's `Invoke-Command`.  Credit for the `FakeHyena` name goes to Kennon Lee.
 
 ## !!!WARNING!!! ~~Usage~~
-This script is still under development and all hacked up!  It won't run as-is if you try `.\Collect-ADDomainData -OUName <ou>`.  I obvioulsy know the command specifics so I run sections of the code piecemeal (e.g., import the necessary functions for the current sessions, get the list of domain computer objects, create the PS sessions, and collect the datasets).  I'm working towards making it more robust but as of now it's not there.
+This script is hacked up and still under development!  It won't run as-is if you try `.\Collect-ADDomainData -OUName <ou>`.  Well it might run but probably not as expected, possible worse.  I obvioulsy know the command specifics so I run sections of the code piecemeal (e.g., import the necessary functions for the current sessions, get the list of domain computer objects, create the PS sessions, then collect the datasets).  I'm working towards making it more robust but as of now it's not there.  Use are your own risk!
 
 ### Requirements
 This code requires the use of PowerShell (PS) Remoting so this must be enabled and accessible in your target environment.  I also wrote code to run these commands locally as well.  This can be used if PS Remoting isn't an option or to ensure you capture the dataset of the host system.
