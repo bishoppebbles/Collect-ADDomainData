@@ -8,9 +8,9 @@
 .EXAMPLE
     .\Collect-ADDomainData.ps1 -OUName <ou_name>
 .NOTES
-    Version 1.0.5
+    Version 1.0.6
     Author: Sam Pursglove
-    Last modified: 21 September 2023
+    Last modified: 22 September 2023
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -379,6 +379,7 @@ Invoke-Command -Session $serverSessions -ScriptBlock {Get-WindowsFeature | Where
 $dhcp = ‘<dhcp_server_name>’
 Get-DHCPServerv4Scope -ComputerName $dhcp | 
 	Get-DHCPServerv4Lease -ComputerName $dhcp -AllLeases | 
+    Select-Object IPAddress,ScopeId,AddressState,ClientId,ClientType,Description,HostName,LeaseExpiryTime,ServerIP |
 	Export-Csv dhcp_leases.csv -NoTypeInformation
 
 
