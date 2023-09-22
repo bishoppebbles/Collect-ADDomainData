@@ -8,9 +8,11 @@
 .EXAMPLE
     .\Collect-ADDomainData.ps1 -OUName <ou_name>
 .NOTES
-    Version 1.0.4
+    Version 1.0.5
     Author: Sam Pursglove
-    Last modified: 20 September 2023
+    Last modified: 21 September 2023
+
+    FakeHyena name credit goes to Kennon Lee.
 
     **Steps to enable PS Remoting via Group Policy**
 
@@ -28,6 +30,8 @@
 		    In the Predefined field, select Windows Remote Management and then follow the wizard to add the new firewall rule.
 #>
 
+[alias("FakeHyena")]
+[alias("fh")]
 param (
     [Parameter(Position=0, HelpMessage='Target OU name')]
     [string]$OUName
@@ -250,12 +254,30 @@ Invoke-Command -Session $sessions -ScriptBlock {Get-Process -IncludeUserName | S
 	Export-Csv -Path processes.csv -NoTypeInformation
 
 # Scheduled tasks
-Invoke-Command -Session $sessions -ScriptBlock {Get-ScheduledTask | Select-Object TaskName,State,Author,TaskPath,Description} | 
+Invoke-Command -Session $sessions `
+               -ScriptBlock {
+                    $guidRegex = "([a-zA-Z0-9_. ]+)-?\{([0-9A-F]+-?){5}\}"
+                    $sidRegex  = "([a-zA-Z0-9_. ]+)((_|-)S-1-5-21)((-\d+){4})"
+                    Get-ScheduledTask | 
+                        Select-Object @{Name='TaskName'; Expression={if( $_.TaskName -match $guidRegex ) { $Matches[1] } elseif ($_.TaskName -match $sidRegex ) { $Matches[1] } else {$_.TaskName}}},
+                                      State,
+                                      Author,
+                                      TaskPath,
+                                      Description
+                    } | 
 	Export-Csv -Path scheduled_tasks.csv -NoTypeInformation
 
 # Services
-Invoke-Command -Session $sessions -ScriptBlock {Get-Service | Select-Object Name,DisplayName,Status,StartType,ServiceType} |
-	Export-Csv -Path services.csv -NoTypeInformation
+Invoke-Command -Session $sessions `
+               -ScriptBlock {
+                    Get-Service | 
+                        Select-Object @{Name='Name'; Expression={$_.Name.Split('_')[0]}}, # remove unique service name suffix
+                                      @{Name='DisplayName'; Expression={$_.DisplayName.Split('_')[0]}}, # remove unique service display name suffix
+                                      Status,
+                                      StartType,
+                                      ServiceType
+                    } |
+    Export-Csv -Path services.csv -NoTypeInformation
 
 # Downloads, Documents, and Desktop files
 Invoke-Command -Session $sessions -ScriptBlock {Get-ChildItem -Path 'C:\Users\*\Downloads\','C:\Users\*\Documents\','C:\Users\*\Desktop\' -Recurse | Select-Object Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes} |
