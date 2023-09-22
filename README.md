@@ -46,37 +46,37 @@ foreach($c in $comps) {
 ```
 
 ## Workstation and Server Datasets
-* Local group Memberships
+* **Local group Memberships**
     * Output fields: GroupName, Name, Domain, SID, PrincipalSource, ObjectClass
-* Local user accounts
+* **Local user accounts**
     * Output fields: Name, SID, RID (calculated), Enabled, PasswordRequired, PasswordChangeable (calculated), PrincipalSource, Description, PasswordLastSet, LastLogon
-* Processes
+* **Processes**
     * Output fields: Name, Id, Path, Hash (calculated), UserName, Company, Description, ProductVersion, StartTime
-* Scheduled tasks
+* **Scheduled tasks**
     * Output fields: TaskName (unique suffixes removed), State, Author, TaskPath, Description
-* Services
+* **Services**
     * Output fields: Name (unique suffixes removed), DisplayName (unique suffixes removed), Status, StartType, ServiceType
-* File names from the `Documents`, `Downloads`, or `Desktop` directories (recursively) for any user profile in `C:\Users`
+* **File names** from the `Documents`, `Downloads`, or `Desktop` directories (recursively) for any user profile in `C:\Users`
     * Output fields: Name, Extension, Directory, CreationTime, LastAccessTime, LastWriteTime, Attributes
-* Program names (i.e., directories) in `C:\Program Files` and `C:\Program Files (x86)`
+* **Program names** (i.e., directories) in `C:\Program Files` and `C:\Program Files (x86)`
     * Output fields: Name, CreationTime, LastAccessTime, LastWriteTime, Attributes, ProgramType (calculated 32/64 bit)
-* Network connections
+* **Network connections**
     * Output fields: Date, Time, LocalAddress, LocalPort, RemoteAddress, RemotePort, State, OwningProcess , ProcessName (calculated)
-* Shares
+* **Shares**
     * Output fields: Name, Path, Description, EncryptData, CurrentUsers, ShareType
-* Share permissions
+* **Share permissions**
     * Output fields: Name, AccountName, AccessControlType, AccessRight
 
 ## Server Specific Datasets
-* Windows installed features
+* **Windows installed features**
     * Output fields: Name, DisplayName, Description, InstallState, Parent, Depth, Path, FeatureType
-* DHCP scopes and leases
+* **DHCP scopes and leases**
     * Output fields: IPAddress, ScopeId, AddressState, ClientId, ClientType, Description, HostName, LeaseExpiryTime, ServerIP
 
 ## Active Directory Datasets
-* AD computer objects
+* **AD computer objects**
     * Output fields: DistinguishedName, Enabled, IPv4Address, LastLogonDate, Name, OperatingSystem, SamAccountName
-* AD user objects
+* **AD user objects**
     * Output fields: AccountExpirationDate, AccountNotDelegated, AllowReversiblePasswordEncryption, CannotChangePassword, DisplayName, Name, Enabled, LastLogonDate, LockedOut, PasswordExpired, PasswordNeverExpires, PasswordNotRequired, SamAccountName, SmartcardLogonRequired
-* AD group memberships
+* **AD group memberships**
     * Output fields: UserSamAccountName, UserDN, UserName, GroupSamAccountName, GroupDN 
