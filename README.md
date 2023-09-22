@@ -46,7 +46,7 @@ foreach($c in $comps) {
 ```
 
 ## Workstation and Server Datasets
-* **Local group Memberships**
+* **Local group Memberships** (note: disabled/broken)
     * Output fields: GroupName, Name, Domain, SID, PrincipalSource, ObjectClass
 * **Local user accounts**
     * Output fields: Name, SID, RID (calculated), Enabled, PasswordRequired, PasswordChangeable (calculated), PrincipalSource, Description, PasswordLastSet, LastLogon
@@ -79,4 +79,11 @@ foreach($c in $comps) {
 * **AD user objects**
     * Output fields: AccountExpirationDate, AccountNotDelegated, AllowReversiblePasswordEncryption, CannotChangePassword, DisplayName, Name, Enabled, LastLogonDate, LockedOut, PasswordExpired, PasswordNeverExpires, PasswordNotRequired, SamAccountName, SmartcardLogonRequired
 * **AD group memberships**
-    * Output fields: UserSamAccountName, UserDN, UserName, GroupSamAccountName, GroupDN 
+    * Output fields: UserSamAccountName, UserDN, UserName, GroupSamAccountName, GroupDN
+
+### TODO
+* Fix local group member issues
+* Auto pull DHCP server (if possible)
+* Switch to run local collection
+* Check if PS Remoting is enabled (maybe a switch)
+
