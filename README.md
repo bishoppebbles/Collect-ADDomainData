@@ -1,7 +1,7 @@
 # Collect-ADDomainData (aka FakeHyena)
 This is a collection of commands to pull a variety of datasets in an Active Directory (AD) domain environment.  If you're familiar with the tool Hyena, this reproduces some of its collection capability but can pull data exponentially faster due to the parallel operation of PowerShell's `Invoke-Command`.
 
-## !!!WARNING!!!
+## !!!WARNING!!! ~~Usage~~
 This script is still under development and all hacked up!  It won't run as-is if you try `.\Collect-ADDomainData -OUName <ou>`.  I obvioulsy know the command specifics so I run sections of the code piecemeal (e.g., import the necessary functions for the current sessions, get the list of domain computer objects, create the PS sessions, and collect the datasets).  I'm working towards making it more robust but as of now it's not there.
 
 ### Requirements
