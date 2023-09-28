@@ -8,9 +8,9 @@
 .EXAMPLE
     .\Collect-ADDomainData.ps1 -OUName <ou_name>
 .NOTES
-    Version 1.0.6
+    Version 1.0.7
     Author: Sam Pursglove
-    Last modified: 22 September 2023
+    Last modified: 28 September 2023
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -71,7 +71,7 @@ function getLocalUsers {
 
 
 # Try to first get the group membership of all local groups using PS cmdlets but if that is unavailable use ADSI
-# note: attempts to use the CIM WMI cmdlets would not work in my domain environment locally or remotely and it's unknown why
+# note: attempts to query WMI data via the CIM cmdlets would not work in my domain environment locally or remotely and it's unknown why
 #   1) Get-CimInstance -Query "Associators of {Win32_Group.Domain='$env:COMPUTERNAME',Name='Administrators'} where Role=GroupComponent"
 #   2) Get-CimInstance -ClassName Win32_Group -Filter "Name='Administrators'" | Get-CimAssociatedInstance -Association Win32_GroupUser
 function getLocalGroupMembers {
@@ -81,46 +81,35 @@ function getLocalGroupMembers {
 
         # get the membership for all local groups
 	    # NOTE!!!! cannot use [pscustomobject] in remoting b/c of constrained language mode limits to core types
-        foreach ($group in $groups) {
-    	    $localGroupMem = Get-LocalGroupMember $group
-            foreach($member in $localGroupMem) {
-                [pscustomobject]@{
-                    GroupName       = $group.Name
-                    Name            = $member.Name.split('\')[1]
-                    Domain          = $member.Name.split('\')[0]
-                    SID             = $member.SID
-                    PrincipalSource = $member.PrincipalSource
-                    ObjectClass     = $member.ObjectClass
-                } 
-            }
-        }
-
-        <# ***DRAFT*** code to use core data types (arrays and hashtables) instead of a pscustom object
-           Returns an array of hashtables
         
-        $groups = Get-LocalGroup
-
-        # get the membership for all local groups
-        # NOTE!!!! cannot use [pscustomobject] in remoting b/c of constrained language mode limits to core types
         foreach ($group in $groups) {
-            $localGroupMem = Get-LocalGroupMember $group
-            foreach($member in $localGroupMem) {
-                @( @{GroupName=$group.Name}
-                   @{Name=$member.Name.split('\')[1]}
-                   @{Domain=$member.Name.split('\')[0]}
-                   @{SID=$member.SID}
-                   @{PrincipalSource=$member.PrincipalSource}
-                   @{ObjectClass=$member.ObjectClass}
-                )
+    	    try {
+                $localGroupMem = Get-LocalGroupMember $group -ErrorAction Stop
+                foreach($member in $localGroupMem) {
+                    @{
+                        GroupName       = $group.Name
+                        Name            = $member.Name.split('\')[1]
+                        Domain          = $member.Name.split('\')[0]
+                        SID             = $member.SID
+                        PrincipalSource = $member.PrincipalSource
+                        ObjectClass     = $member.ObjectClass
+                    } 
+                }
+            } catch [System.InvalidOperationException] {
+                @{
+                    GroupName       = $group.Name
+                    Name            = 'Get-LocalGroupMember InvalidOperationException - data not pulled'
+                    Domain          = 'Get-LocalGroupMember InvalidOperationException - data not pulled'
+                    SID             = 'Get-LocalGroupMember InvalidOperationException - data not pulled'
+                    PrincipalSource = 'Get-LocalGroupMember InvalidOperationException - data not pulled'
+                    ObjectClass     = 'Get-LocalGroupMember InvalidOperationException - data not pulled'
+                }
             }
-        }
-
-        #>
+        }        
     
     # run if the Get-Local* cmdlets are not installed on the remote systems
     } catch [System.Management.Automation.RuntimeException] {
-        Write-Output "In the CATCH!"
-
+       
         # convert the provided value to a readable SID
         function ConvertTo-SID {
             Param([byte[]]$BinarySID)
@@ -147,7 +136,7 @@ function getLocalGroupMembers {
                     $Matches.Clear()
                 }        
 
-                [pscustomobject]@{
+                @{
                     Name            = $_.GetType().InvokeMember("Name", 'GetProperty', $null, $_, $null)
                     ObjectClass     = $_.GetType().InvokeMember("Class", 'GetProperty', $null, $_, $null)    
                     SID             = ConvertTo-SID $_.GetType().InvokeMember("ObjectSID", 'GetProperty', $null, $_, $null)
@@ -163,20 +152,19 @@ function getLocalGroupMembers {
 
         # get group members for each local group
         $groupMembers = foreach($g in $groups) { 
-            [pscustomobject]@{
-                Computername = $env:COMPUTERNAME
+            @{
+            #    Computername = $env:COMPUTERNAME
                 GroupName    = $g.Name[0]
                 GroupMembers = (localGroupMember -Group $g)
-            } 
+            }
         } 
         # ignore groups with no members
-        $groupMembers | Where-Object {$_.GroupMembers -notlike ''}
+        $groupMembers = $groupMembers | Where-Object {$_.GroupMembers -notlike ''}
         
         # output the combined group and individual group member data
         foreach($group in $groupMembers) {
             foreach($member in $group.GroupMembers) {
-                [pscustomobject]@{
-                    #Computername    = $group.ComputerName
+                @{
                     GroupName       = $group.GroupName
                     Name            = $member.Name
                     Domain          = $member.Domain
@@ -208,7 +196,12 @@ $computers | Export-Csv -Path domain_computers.csv -NoTypeInformation
 # Create PS sessions for Windows only systems
 $computers = $computers | Where-Object {$_.OperatingSystem -like "Windows*"}
 $sessionOpt = New-PSSessionOption -NoMachineProfile # Minimize your presence and don't create a user profile on every system (e.g., C:\Users\<username>)
-$sessions = New-PSSession -ComputerName $computers.Name -SessionOption $sessionOpt # Create reusable PS Sessions
+
+#try {
+    $sessions = New-PSSession -ComputerName $computers.Name -SessionOption $sessionOpt # Create reusable PS Sessions
+#} catch [System.Management.Automation.Remoting.PSRemotingTransportException] {
+#    Write-Output "$(($_.ErrorDetails.ToString().Split('] ')[0]).Split('[')[1]): WinRM error"
+#}
 
 
 <#
@@ -239,18 +232,24 @@ Pull remote system data
 #>
 
 # Local Administrators group membership
-# !!!! Doesn't work remotely (see comments in the fuction above
-<#
 Invoke-Command -Session $sessions -ScriptBlock ${function:getLocalGroupMembers} |
+    Select-Object PSComputerName,
+                  @{Name='GroupName'; Expression={$_.GroupName}},
+                  @{Name='Name'; Expression={$_.Name}},
+                  @{Name='Domain'; Expression={$_.Domain}},
+                  @{Name='SID'; Expression={$_.SID}},
+                  @{Name='PrincipalSource'; Expression={$_.PrincipalSource}},
+                  @{Name='ObjectClass'; Expression={$_.ObjectClass}} |
     Export-Csv -Path local_groups.csv -NoTypeInformation
-#>
 
 # Local user accounts
-Invoke-Command -Session $sessions -ScriptBlock ${function:getLocalUsers} | 
+Invoke-Command -Session $sessions -ScriptBlock ${function:getLocalUsers} |
+    Select-Object PSComputerName,SID,RID,Enabled,PasswordRequired,PasswordChangeable,PrincipalSource,Description,PasswordLastSet,LastLogon |
 	Export-Csv -Path local_users.csv -NoTypeInformation
 
 # Processes
 Invoke-Command -Session $sessions -ScriptBlock {Get-Process -IncludeUserName | Select-Object Name,Id,Path,@{Name='Hash'; Expression={if($_.Path -notlike '') {(Get-FileHash $_.Path).Hash}}},UserName,Company,Description,ProductVersion,StartTime} |
+    Select-Object PSComputerName,Name,Id,Path,Hash,UserName,Company,Description,ProductVersion,StartTime |
 	Export-Csv -Path processes.csv -NoTypeInformation
 
 # Scheduled tasks
@@ -264,7 +263,8 @@ Invoke-Command -Session $sessions `
                                       Author,
                                       TaskPath,
                                       Description
-                    } | 
+                    } |
+    Select-Object PSComputerName,TaskName,State,Author,TaskPath,Description |
 	Export-Csv -Path scheduled_tasks.csv -NoTypeInformation
 
 # Services
@@ -277,33 +277,40 @@ Invoke-Command -Session $sessions `
                                       StartType,
                                       ServiceType
                     } |
+    Select-Object PSComputerName,Name,DisplayName,Status,StartType,ServiceType |
     Export-Csv -Path services.csv -NoTypeInformation
 
 # Downloads, Documents, and Desktop files
 Invoke-Command -Session $sessions -ScriptBlock {Get-ChildItem -Path 'C:\Users\*\Downloads\','C:\Users\*\Documents\','C:\Users\*\Desktop\' -Recurse | Select-Object Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes} |
-	Export-Csv -Path files.csv -NoTypeInformation
+	Select-Object PSComputerName,Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes |
+    Export-Csv -Path files.csv -NoTypeInformation
 
 # 64 bit programs
 Invoke-Command -Session $sessions -ScriptBlock {Get-ChildItem -Path 'C:\Program Files' | Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'64-bit'}}} |
-	Export-Csv -Path programs.csv -NoTypeInformation
+	Select-Object PSComputerName,Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,ProgramType |
+    Export-Csv -Path programs.csv -NoTypeInformation
 
 # 32 bit programs
 Invoke-Command -Session $sessions -ScriptBlock {Get-ChildItem -Path 'C:\Program Files (x86)' | Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'32-bit'}}} |
-	Export-Csv -Path programs.csv -Append -NoTypeInformation
+	Select-Object PSComputerName,Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,ProgramType |
+    Export-Csv -Path programs.csv -Append -NoTypeInformation
 
 # Network connections
 Invoke-Command -Session $sessions -ScriptBlock ${function:netConnects} |
+    Select-Object PSComputerName,Date,Time,LocalAddress,LocalPort,RemoteAddress,RemotePort,State,OwningProcess,ProcessName |
     Export-Csv -Path net.csv -Append -NoTypeInformation
 
 # Shares
 Invoke-Command -Session $sessions -ScriptBlock {Get-SmbShare | Select-Object Name,Path,Description,EncryptData,CurrentUsers,ShareType} |
+    Select-Object PSComputerName,Name,Path,Description,EncryptData,CurrentUsers,ShareType |
     Export-Csv -Path shares.csv -NoTypeInformation
 
 # Share permissions
 Invoke-Command -Session $sessions -ScriptBlock {Get-SmbShare | Get-SmbShareAccess | Select-Object Name,AccountName,AccessControlType,AccessRight} |
-	Export-Csv -Path share_permissions.csv -NoTypeInformation
+	Select-Object PSComputerName,Name,AccountName,AccessControlType,AccessRight |
+    Export-Csv -Path share_permissions.csv -NoTypeInformation
     
-Remove-PSSession -Session $sessions
+Get-PSSession | Remove-PSSession
 
 
 <#
@@ -317,7 +324,7 @@ function Collect-LocalSystemData {
 
     # Local user accounts
     getLocalUsers | 
-        Select-Object Name,SID,Enabled,PasswordRequired,PasswordChangeable,PrincipalSource,Description,PasswordLastSet,LastLogon,@{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},PSShowComputerName,RunspaceID |
+        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,SID,Enabled,PasswordRequired,PasswordChangeable,PrincipalSource,Description,PasswordLastSet,LastLogon |
 	    Export-Csv -Path local_users.csv -Append -NoTypeInformation
 
     # Processes
@@ -331,37 +338,37 @@ function Collect-LocalSystemData {
     }
 
     $localProcesses |
-        Select-Object Name,Id,Path,@{Name='Hash'; Expression={if($_.Path -notlike '') {(Get-FileHash $_.Path).Hash}}},UserName,Company,Description,ProductVersion,StartTime,@{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},PSShowComputerName,RunspaceID |
+        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,Id,Path,@{Name='Hash'; Expression={if($_.Path -notlike '') {(Get-FileHash $_.Path).Hash}}},UserName,Company,Description,ProductVersion,StartTime |
 	    Export-Csv -Path processes.csv -Append -NoTypeInformation
 
     # Scheduled tasks
     Get-ScheduledTask |
-        Select-Object TaskName,State,Author,TaskPath,Description,@{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},PSShowComputerName,RunspaceID |
+        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},TaskName,State,Author,TaskPath,Description |
 	    Export-Csv -Path scheduled_tasks.csv -Append -NoTypeInformation
 
     # Services
     Get-Service |
-        Select-Object Name,DisplayName,Status,StartType,ServiceType,@{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},PSShowComputerName,RunspaceID |
+        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,DisplayName,Status,StartType,ServiceType |
 	    Export-Csv -Path services.csv -Append -NoTypeInformation
 
     # Downloads, Documents, and Desktop files
     Get-ChildItem -Path 'C:\Users\*\Downloads\','C:\Users\*\Documents\','C:\Users\*\Desktop\' -Recurse |
-        Select-Object Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},PSShowComputerName,RunspaceID |
+        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes |
 	    Export-Csv -Path files.csv -Append -NoTypeInformation
 
     # 64 bit programs
     Get-ChildItem -Path 'C:\Program Files' |
-        Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'64-bit'}},@{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},PSShowComputerName,RunspaceID |
+        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'64-bit'}} |
 	    Export-Csv -Path programs.csv -Append -NoTypeInformation
 
     # 32 bit programs
     Get-ChildItem -Path 'C:\Program Files (x86)' |
-        Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'32-bit'}},@{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},PSShowComputerName,RunspaceID |
+        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'32-bit'}} |
 	    Export-Csv -Path programs.csv -Append -NoTypeInformation
 
     # Network connections
     netConnects | 
-        Select-Object Date,Time,LocalAddress,LocalPort,RemoteAddress,RemotePort,State,OwningProcess,ProcessName,@{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},PSShowComputerName,RunspaceID |
+        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Date,Time,LocalAddress,LocalPort,RemoteAddress,RemotePort,State,OwningProcess,ProcessName |
         Export-Csv -Path net.csv -Append -NoTypeInformation
 }
 
@@ -392,21 +399,29 @@ Get-ADUser -Filter * -Properties AccountExpirationDate,AccountNotDelegated,Allow
 	Export-Csv -Path domain_users.csv -NoTypeInformation
 
 # Get all OU groups and their members
-$adGroupMembers = New-Object System.Collections.ArrayList
+#$adGroupMembers = New-Object System.Collections.ArrayList
 $groups = Get-ADGroup -Filter * -Properties * -SearchBase $distinguishedName
 
 foreach($group in $groups) {
-    Get-ADGroupMember -Identity $group.SamAccountName -Recursive | 
-	    Where-Object {$_.objectClass -like "user"} |
-        ForEach-Object {
-            $adGroupMembers.Add([PSCustomObject]@{
-                UserSamAccountName  = $_.SamAccountName
-                UserDN              = $_.distinguishedName
-                UserName            = $_.name
-                GroupSamAccountName = $group.SamAccountName
-                GroupDN             = $group.DistinguishedName
-            }) | Out-Null
-        }
+    try {
+        Get-ADGroupMember -Identity $group.SamAccountName -Recursive -ErrorAction SilentlyContinue | 
+	        Where-Object {$_.objectClass -like "user"} |
+            ForEach-Object {
+                @{
+                    UserSamAccountName  = $_.SamAccountName
+                    UserDN              = $_.distinguishedName
+                    UserName            = $_.name
+                    GroupSamAccountName = $group.SamAccountName
+                    GroupDN             = $group.DistinguishedName
+                }
+            } | 
+        Select-Object @{Name='UserName'; Expression={$_.UserName}},
+                      @{Name='UserSamAccountName'; Expression={$_.UserSamAccountName}},
+                      @{Name='UserDN'; Expression={$_.UserDN}},
+                      @{Name='GroupDN'; Expression={$_.GroupDN}},
+                      @{Name='GroupSamAccountName'; Expression={$_.GroupSamAccountName}} | 
+        Export-Csv -Path ad_group_members.csv -Append -NoTypeInformation
+    } catch [Microsoft.ActiveDirectory.Management.ADException] {
+        Write-Output "$($group.SamAccountName): AD error recursing group (likely out of domain)"
+    }
 }
-
-$adGroupMembers | Export-Csv -Path ad_group_members.csv -NoTypeInformation
