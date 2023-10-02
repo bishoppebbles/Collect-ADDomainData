@@ -8,9 +8,9 @@
 .EXAMPLE
     .\Collect-ADDomainData.ps1 -OUName <ou_name>
 .NOTES
-    Version 1.0.7
+    Version 1.0.8
     Author: Sam Pursglove
-    Last modified: 28 September 2023
+    Last modified: 02 October 2023
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -244,7 +244,7 @@ Invoke-Command -Session $sessions -ScriptBlock ${function:getLocalGroupMembers} 
 
 # Local user accounts
 Invoke-Command -Session $sessions -ScriptBlock ${function:getLocalUsers} |
-    Select-Object PSComputerName,SID,RID,Enabled,PasswordRequired,PasswordChangeable,PrincipalSource,Description,PasswordLastSet,LastLogon |
+    Select-Object PSComputerName,Name,SID,RID,Enabled,PasswordRequired,PasswordChangeable,PrincipalSource,Description,PasswordLastSet,LastLogon |
 	Export-Csv -Path local_users.csv -NoTypeInformation
 
 # Processes
@@ -383,7 +383,7 @@ Invoke-Command -Session $serverSessions -ScriptBlock {Get-WindowsFeature | Where
 	Export-Csv -Path windows_server_features.csv -NoTypeInformation
 
 # DHCP scope and lease records
-$dhcp = ‘<dhcp_server_name>’
+$dhcp = Â‘<dhcp_server_name>Â’
 Get-DHCPServerv4Scope -ComputerName $dhcp | 
 	Get-DHCPServerv4Lease -ComputerName $dhcp -AllLeases | 
     Select-Object IPAddress,ScopeId,AddressState,ClientId,ClientType,Description,HostName,LeaseExpiryTime,ServerIP |
