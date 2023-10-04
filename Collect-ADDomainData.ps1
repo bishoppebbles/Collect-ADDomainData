@@ -8,7 +8,7 @@
 .EXAMPLE
     .\Collect-ADDomainData.ps1 -OUName <ou_name>
 .NOTES
-    Version 1.0.9
+    Version 1.0.10
     Author: Sam Pursglove
     Last modified: 04 October 2023
 
@@ -372,7 +372,7 @@ function Collect-LocalSystemData {
 
     # Local user accounts
     getLocalUsers | 
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,SID,Enabled,PasswordRequired,PasswordChangeable,PrincipalSource,Description,PasswordLastSet,LastLogon |
+        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,SID,RID,Enabled,PasswordRequired,PasswordChangeable,PrincipalSource,Description,PasswordLastSet,LastLogon |
 	    Export-Csv -Path local_users.csv -Append -NoTypeInformation
 
     # Processes
@@ -390,13 +390,26 @@ function Collect-LocalSystemData {
 	    Export-Csv -Path processes.csv -Append -NoTypeInformation
 
     # Scheduled tasks
+    $guidRegex = "([a-zA-Z0-9_. ]+)-?\{([0-9A-F]+-?){5}\}"
+    $sidRegex  = "([a-zA-Z0-9_. ]+)((_|-)S-1-5-21)((-\d+){4})"
+    
     Get-ScheduledTask |
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},TaskName,State,Author,TaskPath,Description |
+        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
+                      @{Name='TaskName'; Expression={if( $_.TaskName -match $guidRegex ) { $Matches[1] } elseif ($_.TaskName -match $sidRegex ) { $Matches[1] } else {$_.TaskName}}},
+                      State,
+                      Author,
+                      TaskPath,
+                      Description |
 	    Export-Csv -Path scheduled_tasks.csv -Append -NoTypeInformation
 
     # Services
     Get-Service |
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,DisplayName,Status,StartType,ServiceType |
+        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
+                      @{Name='Name'; Expression={$_.Name.Split('_')[0]}}, # remove unique service name suffix
+                      @{Name='DisplayName'; Expression={$_.DisplayName.Split('_')[0]}}, # remove unique service display name suffix
+                      Status,
+                      StartType,
+                      ServiceType |
 	    Export-Csv -Path services.csv -Append -NoTypeInformation
 
     # Downloads, Documents, and Desktop files
