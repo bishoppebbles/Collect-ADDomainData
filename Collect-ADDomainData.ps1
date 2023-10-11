@@ -8,9 +8,9 @@
 .EXAMPLE
     .\Collect-ADDomainData.ps1 -OUName <ou_name>
 .NOTES
-    Version 1.0.10
+    Version 1.0.11
     Author: Sam Pursglove
-    Last modified: 04 October 2023
+    Last modified: 11 October 2023
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -240,13 +240,13 @@ Invoke-Command -Session $sessions -ScriptBlock ${function:getLocalGroupMembers} 
                   @{Name='SID'; Expression={$_.SID}},
                   @{Name='PrincipalSource'; Expression={$_.PrincipalSource}},
                   @{Name='ObjectClass'; Expression={$_.ObjectClass}} |
-    Export-Csv -Path local_groups.csv -NoTypeInformation
+    Export-Csv -Path local_groups.csv -Append -NoTypeInformation
 
 
 # Local user accounts
 Invoke-Command -Session $sessions -ScriptBlock ${function:getLocalUsers} |
     Select-Object PSComputerName,Name,SID,RID,Enabled,PasswordRequired,PasswordChangeable,PrincipalSource,Description,PasswordLastSet,LastLogon |
-	Export-Csv -Path local_users.csv -NoTypeInformation
+	Export-Csv -Path local_users.csv -Append -NoTypeInformation
 
 
 # Processes
@@ -264,7 +264,7 @@ Invoke-Command -Session $sessions `
                                   StartTime
                } |
     Select-Object PSComputerName,Name,Id,Path,Hash,UserName,Company,Description,ProductVersion,StartTime |
-	Export-Csv -Path processes.csv -NoTypeInformation
+	Export-Csv -Path processes.csv -Append -NoTypeInformation
 
 
 # Scheduled tasks
@@ -280,7 +280,7 @@ Invoke-Command -Session $sessions `
                                     Description
                 } |
     Select-Object PSComputerName,TaskName,State,Author,TaskPath,Description |
-	Export-Csv -Path scheduled_tasks.csv -NoTypeInformation
+	Export-Csv -Path scheduled_tasks.csv -Append -NoTypeInformation
 
 # Services
 Invoke-Command -Session $sessions `
@@ -293,7 +293,7 @@ Invoke-Command -Session $sessions `
                                   ServiceType
                } |
     Select-Object PSComputerName,Name,DisplayName,Status,StartType,ServiceType |
-    Export-Csv -Path services.csv -NoTypeInformation
+    Export-Csv -Path services.csv -Append -NoTypeInformation
 
 
 # Downloads, Documents, and Desktop files
@@ -303,7 +303,7 @@ Invoke-Command -Session $sessions `
                     Select-Object Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes
                } |
 	Select-Object PSComputerName,Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes |
-    Export-Csv -Path files.csv -NoTypeInformation
+    Export-Csv -Path files.csv -Append -NoTypeInformation
 
 
 # 64 bit programs
@@ -313,7 +313,7 @@ Invoke-Command -Session $sessions `
                     Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'64-bit'}}
                } |
 	Select-Object PSComputerName,Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,ProgramType |
-    Export-Csv -Path programs.csv -NoTypeInformation
+    Export-Csv -Path programs.csv -Append -NoTypeInformation
 
 
 # 32 bit programs
@@ -329,7 +329,7 @@ Invoke-Command -Session $sessions `
 # Network connections
 Invoke-Command -Session $sessions -ScriptBlock ${function:netConnects} |
     Select-Object PSComputerName,Date,Time,LocalAddress,LocalPort,RemoteAddress,RemotePort,State,OwningProcess,ProcessName |
-    Export-Csv -Path net.csv -NoTypeInformation
+    Export-Csv -Path net.csv -Append -NoTypeInformation
 
 
 # Shares
@@ -339,7 +339,7 @@ Invoke-Command -Session $sessions `
                     Select-Object Name,Path,Description,EncryptData,CurrentUsers,ShareType
                } |
     Select-Object PSComputerName,Name,Path,Description,EncryptData,CurrentUsers,ShareType |
-    Export-Csv -Path shares.csv -NoTypeInformation
+    Export-Csv -Path shares.csv -Append -NoTypeInformation
 
 
 # Share permissions
@@ -350,7 +350,7 @@ Invoke-Command -Session $sessions `
                     Select-Object Name,AccountName,AccessControlType,AccessRight
                } |
 	Select-Object PSComputerName,Name,AccountName,AccessControlType,AccessRight |
-    Export-Csv -Path share_permissions.csv -NoTypeInformation
+    Export-Csv -Path share_permissions.csv -Append -NoTypeInformation
     
 Get-PSSession | Remove-PSSession
 
@@ -452,7 +452,8 @@ $serverSessions = Get-PSSession |  Where-Object {$_.ComputerName -like "$($ounam
 
 # Windows Server installed features
 Invoke-Command -Session $serverSessions -ScriptBlock {Get-WindowsFeature | Where-Object {$_.InstallState -eq 'Installed'} | Select-Object Name,DisplayName,Description,InstallState,Parent,Depth,Path,FeatureType} | 
-	Export-Csv -Path windows_server_features.csv -NoTypeInformation
+    Select-Object PSComputerName,Name,DisplayName,Description,InstallState,Parent,Depth,Path,FeatureType |
+	Export-Csv -Path windows_server_features.csv -Append -NoTypeInformation
 
 # DHCP scope and lease records
 $dhcp = Get-CimInstance Win32_NetworkAdapterConfiguration -Filter "DHCPEnabled=$true" | 
@@ -461,7 +462,7 @@ $dhcp = Get-CimInstance Win32_NetworkAdapterConfiguration -Filter "DHCPEnabled=$
 Get-DHCPServerv4Scope -ComputerName $dhcp.DHCPServer | 
 	Get-DHCPServerv4Lease -ComputerName $dhcp.DHCPServer -AllLeases | 
     Select-Object IPAddress,ScopeId,AddressState,ClientId,ClientType,Description,HostName,LeaseExpiryTime,ServerIP |
-	Export-Csv dhcp_leases.csv -NoTypeInformation
+	Export-Csv dhcp_leases.csv -Append -NoTypeInformation
 
 
 <#
