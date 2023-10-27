@@ -8,9 +8,9 @@
 .EXAMPLE
     .\Collect-ADDomainData.ps1 -OUName <ou_name>
 .NOTES
-    Version 1.0.12
+    Version 1.0.13
     Author: Sam Pursglove
-    Last modified: 19 October 2023
+    Last modified: 27 October 2023
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -233,6 +233,57 @@ function Collect-LocalSystemData {
                       @{Name='PrincipalSource'; Expression={$_.PrincipalSource}},
                       @{Name='ObjectClass'; Expression={$_.ObjectClass}} |
 	    Export-Csv -Path local_groups.csv -Append -NoTypeInformation
+
+    # Local system information
+    Write-Output "Local: Getting system information"
+    Get-ComputerInfo -OutVariable hotFixes |
+        Select-Object CsName,
+                      WindowsCurrentVersion,
+                      WindowsEditionId,
+                      WindowsVersion,
+                      BiosManufacturer,
+                      BiosSMBIOSBIOSVersion,
+                      BiosFirmwareType,
+                      BiosReleaseDate,
+                      BiosSeralNumber,
+                      BiosCurrentLanguage,
+                      CsDomain,
+                      CsDomainRole,
+                      CsManufacturer,
+                      CsModel,
+                      @{name='CsProcessors'; expression={$_.CsProcessors.Name}},
+                      CsNumberOfProcessors,
+                      @{name='CsNumberOfCores'; expression={$_.CsProcessors.NumberOfCores}},
+                      CsNumberofLogicalProcessors,
+                      CsPartOfDomain,
+                      @{name='CsTotalPhysicalMemory (GB)'; expression={[math]::Round($_.CsTotalPhysicalMemory/1GB, 1)}},
+                      @{name='CsMaxClockSpeed'; expression={$_.CsProcessors.MaxClockSpeed}},
+                      OsName,
+                      OsType,
+                      OsVersion,
+                      OsBuildNumber,
+                      OsLocale,
+                      OsManufacturer,
+                      OsArchitecture,
+                      OsLanguage,
+                      KeyboardLayout,
+                      TimeZone,
+                      LogonServer,
+                      PowerPlatformRole |
+        Export-Csv -Path system_info.csv -Append -NoTypeInformation
+
+    $hotFixes.OsHotFixes | 
+        ForEach-Object {
+            [pscustomobject]@{
+                HotFixID    = $_.HotFixID
+                Description = $_.Description
+                InstalledOn = $_.InstalledOn
+                CsName      = $hotFixes.CsName
+            }
+        } | 
+        Select-Object CsName,HotFixID,Description,InstalledOn | 
+        Export-Csv -Path hotfixes.csv -Append -NoTypeInformation
+
 
     # Local user accounts
     Write-Output "Local: Getting local user accounts."
