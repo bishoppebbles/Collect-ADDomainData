@@ -563,7 +563,11 @@ Get-PSSession | Remove-PSSession
 
 
 ### Servers ###
-$serverSessions = Get-PSSession |  Where-Object {$_.ComputerName -like "$($ouname)*"}
+$winServers = $computers | Where-Object {$_.OperatingSystem -like "Windows Server*"}
+
+# Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
+Write-Output "Remoting: Creating PowerShell server sessions."
+$serverSessions = New-PSSession -ComputerName $winServers.Name -SessionOption $sessionOpt
 
 # Windows Server installed features
 Write-Output "Server: Getting installed features."
