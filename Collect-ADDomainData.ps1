@@ -8,9 +8,9 @@
 .EXAMPLE
     .\Collect-ADDomainData.ps1 -OUName <ou_name>
 .NOTES
-    Version 1.0.13
+    Version 1.0.14
     Author: Sam Pursglove
-    Last modified: 27 October 2023
+    Last modified: 08 November 2023
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -574,6 +574,9 @@ Write-Output "Server: Getting installed features."
 Invoke-Command -Session $serverSessions -ScriptBlock {Get-WindowsFeature | Where-Object {$_.InstallState -eq 'Installed'} | Select-Object Name,DisplayName,Description,InstallState,Parent,Depth,Path,FeatureType} | 
     Select-Object PSComputerName,Name,DisplayName,Description,InstallState,Parent,Depth,Path,FeatureType |
 	Export-Csv -Path windows_server_features.csv -Append -NoTypeInformation
+
+Get-PSSession | Remove-PSSession
+
 
 # DHCP scope and lease records
 Write-Output "Server: Getting DHCP leases."
