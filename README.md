@@ -17,7 +17,7 @@ This code requires the use of PowerShell (PS) Remoting so this must be enabled a
 
 3) Allow Windows Remote Management in the Firewall
   * Navigate to the following folder in the Group Policy Management Console (GPMC), right-click `Inbound Rules`, and click `New Rule`.
-    * `Computer Configuration > Policies > Windows Settings > Security Settings > Windows (Defender) Firewall with Advanced Security`
+    * `Computer Configuration > Policies > Windows Settings > Security Settings > Windows Defender Firewall with Advanced Security > Windows Defender Firewall with Advanced Security`
       * In the `Predefined` field, select `Windows Remote Management` and then follow the wizard to add the new firewall rule.
 
 #### Enable PS Remoting with WMI
