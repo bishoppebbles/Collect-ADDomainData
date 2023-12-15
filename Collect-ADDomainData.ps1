@@ -1,14 +1,47 @@
 <#
 .SYNOPSIS
-    Collects Windows various system and/or domain datasets.
+    Collects various Windows workstation and server and/or domain datasets: local user accounts, local group memberships, processes, scheduled tasks, services, network connections, locally saved files, 32/64-bit installed programs, general system information, installed hot fixes, shares, share permissions, Active Directory users|computers|group memberships, Windows DHCP server scopes and leases, and Windows Server installed roles and features.
 .DESCRIPTION
-    By default this script collects various system datasets from workstations and servers in a Windows Active Directory (AD) domain environment as well as some AD datasets.  It also has an option to collect the same datasets for the local system.  This can be useful for non-domain (standalone) systems.
+    By default this script collects various system datasets from workstations and servers in a Windows Active Directory (AD) domain environment as well as some AD datasets.  It also has an option to collect the same datasets for the local system.  This can be useful for non-domain joined (i.e., "standalone") systems.
 .PARAMETER OUName
-    The OU name of interest
+    The specific OU name of interest.  Can be used to limit the collection scope in a domain environment
+.PARAMETER DHCPServer
+    Specify the server name if collecting Windows DHCP server scope and lease information with other domain data.
+.PARAMETER IncludeServerFeatures
+    Collect installed Windows Server feature and role information with other domain data.
+.PARAMETER IncludeActiveDirectory
+    Collect AD database user object and group membership information with other domain data.
+.PARAMETER DHCPOnly
+    Only collect Windows DHCP server scope and lease information.  The DHCP server name must also be provided with the -DHCPServer option.
+.PARAMETER ServerFeaturesOnly
+    Only collect installed Windows Server feature and role information.
+.PARAMETER ActiveDirectoryOnly
+    Only collect AD database user object and group membership information.
+.PARAMETER LocalCollectionOnly
+    Collect the datasets on the local system (does not use PowerShell remoting functionality).
 .EXAMPLE
-    .\Collect-ADDomainData.ps1 -OUName <ou_name>
+    Collect-ADDomainData.ps1
+    Collects datasets for domain systems using the AD domain distinguished name of the script host.
+.EXAMPLE
+    Collect-ADDomainData.ps1 -OUName 'Finance'
+    Collects datasets for domain systems using the AD domain distinguished name of the script host and the specified Organization Unit (OU).
+.EXAMPLE
+    Collect-ADDomainData.ps1 -OUName 'Finance' -DHCPServer dhcpsvr01 -IncludeServerFeatures -IncludeActiveDirectory
+    Collects datasets for domain systems using the AD domain distinguished name of the script host and the specified Organization Unit (OU).  It also collects Windows DHCP server scopes and leases, Windows Server feature and roles information, and Active Directory datasets.
+.EXAMPLE
+    Collect-ADDomainData.ps1 -DHCPServer dhcpsvr01 -DHCPOnly
+    Collects only Windows DHCP server scope and lease information.
+.EXAMPLE
+    Collect-ADDomainData.ps1 -ADOnly
+    Collects only Windows Active Directory domain user object and group memberships datasets using the AD domain distinguished name of the script host.
+.EXAMPLE
+    Collect-ADDomainData.ps1 -OUName 'Detroit' -ADOnly
+    Collects only Windows Active Directory domain user object and group memberships datasets using the AD domain distinguished name of the script host and the specified Organization Unit (OU).
+.EXAMPLE
+    Collect-ADDomainData.ps1 -LocalCollectionOnly
+    Collects the datasets for the local system on the script host.
 .NOTES
-    Version 1.0.15
+    Version 1.0.16
     Author: Sam Pursglove
     Last modified: 15 December 2023
 
@@ -30,29 +63,28 @@
 		    In the Predefined field, select Windows Remote Management and then follow the wizard to add the new firewall rule.
 #>
 
-[alias("FakeHyena")]
-[alias("fh")]
-
 [CmdletBinding(DefaultParameterSetName='Domain')]
 param (
     [Parameter(ParameterSetName='Domain', Mandatory=$False, Position=0, HelpMessage='Target OU name')]
+    [Parameter(ParameterSetName='ServerFeaturesOnly', Mandatory=$False, Position=0, HelpMessage='Target OU name')]
+    [Parameter(ParameterSetName='ADOnly', Mandatory=$False, Position=0, HelpMessage='Target OU name')]
     [string]$OUName = '',
     
-    [Parameter(ParameterSetName='Domain', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect Windows Server Feature data')]
-    [Switch]$IncludeServerFeatures,
-
     [Parameter(ParameterSetName='DHCPOnly', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect DHCP server scope and lease data')]
     [Parameter(ParameterSetName='Domain', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect DHCP server scope and lease data')]
     [string]$DHCPServer,
 
+    [Parameter(ParameterSetName='Domain', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect Windows Server Feature data')]
+    [Switch]$IncludeServerFeatures,
+
     [Parameter(ParameterSetName='Domain', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect AD user and group membership data')]
     [Switch]$IncludeActiveDirectory,
 
-    [Parameter(ParameterSetName='ServerFeaturesOnly', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect Windows Server Feature data')]
-    [Switch]$ServerFeaturesOnly,
-
     [Parameter(ParameterSetName='DHCPOnly', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect DHCP server scope and lease data')]
     [Switch]$DHCPOnly,
+    
+    [Parameter(ParameterSetName='ServerFeaturesOnly', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect Windows Server Feature data')]
+    [Switch]$ServerFeaturesOnly,
 
     [Parameter(ParameterSetName='ADOnly', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect AD user and group membership data')]
     [Switch]$ActiveDirectoryOnly,
@@ -432,7 +464,7 @@ function Collect-RemoteSystemData {
 
 
     ### Removing data pull ###
-    # Local Administrators group membership
+    # Local group memberships
     Write-Output "Remoting: Getting local group memberships."
     Get-BrokenPSSessions 'LocalGroupMembers'
 
