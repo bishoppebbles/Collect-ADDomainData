@@ -60,12 +60,16 @@ foreach($c in $comps) {
     * Output fields: TaskName (unique suffixes removed), State, Author, TaskPath, Description
 * **Services**
     * Output fields: Name (unique suffixes removed), DisplayName (unique suffixes removed), Status, StartType, ServiceType
+* **Network connections**
+    * Output fields: Date, Time, LocalAddress, LocalPort, RemoteAddress, RemotePort, State, OwningProcess , ProcessName (calculated)
 * **File names** from the `Documents`, `Downloads`, or `Desktop` directories (recursively) for any user profile in `C:\Users`
     * Output fields: Name, Extension, Directory, CreationTime, LastAccessTime, LastWriteTime, Attributes
 * **Program names** (i.e., directories) in `C:\Program Files` and `C:\Program Files (x86)`
     * Output fields: Name, CreationTime, LastAccessTime, LastWriteTime, Attributes, ProgramType (calculated 32/64 bit)
-* **Network connections**
-    * Output fields: Date, Time, LocalAddress, LocalPort, RemoteAddress, RemotePort, State, OwningProcess , ProcessName (calculated)
+* **General system information**
+    * Output fields: WindowsCurrentVersion, WindowsEditionId, WindowsVersion,	BiosManufacturer,	BiosSMBIOS, BIOSVersion,	BiosFirmwareType,	BiosReleaseDate,	BiosSeralNumber,	BiosCurrentLanguage,	CsDomain,	CsDomainRole,	CsManufacturer,	CsModel,	CsProcessors,	CsNumberOfProcessors,	CsNumberOfCores,	CsNumberOfLogicalProcessors,	CsPartOfDomain,	CsTotalPhysicalMemory (GB),	CsMaxClockSpeed,	OsName,	OsType,	OsVersion,	OsBuildNumber,	OsLocale,	OsManufacturer,	OsArchitecture,	OsLanguage,	KeyboardLayout,	TimeZone,	LogonServer,	PowerPlatformRole
+* **System hot fix information**
+    * Output fields: HotFixID, Description,InstalledOn
 * **Shares**
     * Output fields: Name, Path, Description, EncryptData, CurrentUsers, ShareType
 * **Share permissions**
