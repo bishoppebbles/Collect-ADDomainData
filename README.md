@@ -92,13 +92,15 @@ foreach($c in $comps) {
 ### TODO
 - [x] Fix local group member issues
 - [ ] Auto pull DHCP server (if possible)
-- [ ] Switch to run local collection
+- [x] Switch to run local collection
 - [ ] Check if PS Remoting is enabled (maybe a switch)
+- [ ] Check if the local PowerShell process is running elevated
+- [ ] Rerun a datapull for failed system checks
 
 ## Appendix A - PowerShell Remoting Group Policy Walkthrough
 I’ve deployed the below group policy before and it also hasn’t worked as described.  Can’t say why but I assume there were other settings either in the domain or on the network that were blocking it and my sys/network admin skillz were too weak to sort it out.  Regardless, even if you create the policy but don’t link it to the domain’s computer objects it won’t do anything.  You can also try enforcing it too and maybe that will help override other conflicting settings, if applicable.
 
-The default Group Policy background replication time is supposed to be 90 minutes with a randomized offset of up to 30 minutes.  With my math that means it can take up to 2 hours.  It’s also supposed to be updated when a domain computer reboots, a user logs on, or if you run the gpupdate /force command from the command prompt.
+The default Group Policy background replication time is supposed to be 90 minutes with a randomized offset of up to 30 minutes.  With my math that means it can take up to 2 hours.  It’s also supposed to be updated when a domain computer reboots, a user logs on, or if you run the `gpupdate /force` command from the command prompt.
 
 1. To view group policy settings, open the Group Policy Management console MMC (`gpmc.msc`).  If it’s not installed, with the right permissions or access you have options for Windows workstation or server.
 
@@ -111,12 +113,11 @@ The default Group Policy background replication time is supposed to be 90 minute
 3. Group Policy Management Server installation.
   * Go to `Server Manager > Manage > Add Roles and Features`
     * Select 'Role-based or feature-based installation'
-    * Select the server for installation under ‘Server Selection’
+    * Select the server for installation under 'Server Selection'
     * Server Roles (click 'Next')
     * Select 'Group Policy Management' and click 'Next'
     * Click 'Install' (reboot is not required)
-
-b. To launch the tool you can run gpmc.msc go to Server Manager > Tools > Group Policy Management.
+  * To launch the tool you can run `gpmc.msc` go to `Server Manager > Tools > Group Policy Management`.
 
 4. The easiest potential approach is to link a new Group Policy Object (GPO) at the domain level.  If you have computer objects organized within an OU (or OUs) you can link at that granularity level as well.  You can’t link Group Policy (GP) to an Active Directory container.
 
