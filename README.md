@@ -1,8 +1,29 @@
 # Collect-ADDomainData (aka FakeHyena)
 This is a collection of commands to pull a variety of datasets in an Active Directory (AD) domain environment.  If you're familiar with the tool Hyena, this reproduces some of its collection capability but can pull data exponentially faster due to the parallel operation of PowerShell's `Invoke-Command`.  Credit for the `FakeHyena` name goes to Kennon Lee.
 
-## !!!WARNING!!! ~~Usage~~
-This script is hacked up and still under development!  It won't run as-is if you try `.\Collect-ADDomainData -OUName <ou>`.  Well it might run but probably not as expected, possible worse.  I obvioulsy know the command specifics so I run sections of the code piecemeal (e.g., import the necessary functions for the current sessions, get the list of domain computer objects, create the PS sessions, then collect the datasets).  I'm working towards making it more robust but as of now it's not there.  Use are your own risk!
+## Usage
+```powershell
+# Collects datasets for domain systems using the AD domain distinguished name of the script host system.
+Collect-ADDomainData.ps1
+
+# Collects datasets for domain systems using the AD domain distinguished name of the script host and the specified Organization Unit (OU).
+Collect-ADDomainData.ps1 -OUName 'Finance'
+
+# Collects datasets for domain systems using the AD domain distinguished name of the script host and the specified Organization Unit (OU).  It also collects Windows DHCP server scopes and leases, Windows Server feature and roles information, and Active Directory datasets.
+Collect-ADDomainData.ps1 -OUName 'Finance' -DHCPServer dhcpsvr01 -IncludeServerFeatures -IncludeActiveDirectory
+
+# Collects only Windows DHCP server scope and lease information.
+Collect-ADDomainData.ps1 -DHCPServer dhcpsvr01 -DHCPOnly
+
+# Collects only Windows Active Directory domain user object and group memberships datasets using the AD domain distinguished name of the script host.
+Collect-ADDomainData.ps1 -ADOnly
+
+# Collects only Windows Active Directory domain user object and group memberships datasets using the AD domain distinguished name of the script host and the specified Organization Unit (OU).
+Collect-ADDomainData.ps1 -OUName 'Detroit' -ADOnly
+
+# Collects the datasets for the local system on the script host.
+Collect-ADDomainData.ps1 -LocalCollectionOnly
+```
 
 ### Requirements
 This code requires the use of PowerShell (PS) Remoting so this must be enabled and accessible in your target environment.  Check *Appendix A* below for a detailed walkthrough on doing this.  I also wrote code to run these commands locally as well.  This can be used if PS Remoting isn't an option or to ensure you capture the dataset of the host system.
