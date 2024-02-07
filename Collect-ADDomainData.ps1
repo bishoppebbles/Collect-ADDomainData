@@ -696,7 +696,7 @@ function Collect-ServerFeatures {
     # Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
     Write-Output "Remoting: Creating PowerShell server sessions."
     $sessionOpt = New-PSSessionOption -NoMachineProfile # Minimize your presence and don't create a user profile on every system (e.g., C:\Users\<username>)
-    $serverSessions = New-PSSession -ComputerName $winServers.Name -SessionOption $sessionOpt -ErrorAction SilentlyContinue | Out-Null # Create reusable PS Sessions
+    $serverSessions = New-PSSession -ComputerName $winServers.Name -SessionOption $sessionOpt -ErrorAction SilentlyContinue # Create reusable PS Sessions
 
     # Determine the systems where PS remoting failed
     Get-FailedWinRMSessions $winServers | 
