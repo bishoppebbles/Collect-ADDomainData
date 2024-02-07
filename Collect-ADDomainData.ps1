@@ -32,18 +32,18 @@
     Collect-ADDomainData.ps1 -DHCPServer dhcpsvr01 -DHCPOnly
     Collects only Windows DHCP server scope and lease information.
 .EXAMPLE
-    Collect-ADDomainData.ps1 -ADOnly
+    Collect-ADDomainData.ps1 -ActiveDirectoryOnly
     Collects only Windows Active Directory domain user object and group memberships datasets using the AD domain distinguished name of the script host.
 .EXAMPLE
-    Collect-ADDomainData.ps1 -OUName 'Detroit' -ADOnly
+    Collect-ADDomainData.ps1 -OUName 'Detroit' -ActiveDirectoryOnly
     Collects only Windows Active Directory domain user object and group memberships datasets using the AD domain distinguished name of the script host and the specified Organization Unit (OU).
 .EXAMPLE
     Collect-ADDomainData.ps1 -LocalCollectionOnly
     Collects the datasets for the local system on the script host.
 .NOTES
-    Version 1.0.16
+    Version 1.0.17
     Author: Sam Pursglove
-    Last modified: 15 December 2023
+    Last modified: 07 February 2024
 
     FakeHyena name credit goes to Kennon Lee.
 
