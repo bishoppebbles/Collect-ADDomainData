@@ -16,10 +16,10 @@ Collect-ADDomainData.ps1 -OUName 'Finance' -DHCPServer dhcpsvr01 -IncludeServerF
 Collect-ADDomainData.ps1 -DHCPServer dhcpsvr01 -DHCPOnly
 
 # Collects only Windows Active Directory domain user object and group memberships datasets using the AD domain distinguished name of the script host.
-Collect-ADDomainData.ps1 -ADOnly
+Collect-ADDomainData.ps1 -ActiveDirectoryOnly
 
 # Collects only Windows Active Directory domain user object and group memberships datasets using the AD domain distinguished name of the script host and the specified Organization Unit (OU).
-Collect-ADDomainData.ps1 -OUName 'Detroit' -ADOnly
+Collect-ADDomainData.ps1 -OUName 'Detroit' -ActiveDirectoryOnly
 
 # Collects the datasets for the local system on the script host.
 Collect-ADDomainData.ps1 -LocalCollectionOnly
@@ -99,7 +99,9 @@ foreach($c in $comps) {
 ## Server Specific Datasets
 * **Windows installed features**
     * Output fields: Name, DisplayName, Description, InstallState, Parent, Depth, Path, FeatureType
-* **DHCP scopes and leases**
+* **DHCP scopes**
+    * Output fields: ScopeId, SubnetMask, StartRange, EndRange, ActivatePolicies, LeaseDuration, Name, State, Type
+* **DHCP leases**
     * Output fields: IPAddress, ScopeId, AddressState, ClientId, ClientType, Description, HostName, LeaseExpiryTime, ServerIP
 
 ## Active Directory Datasets
