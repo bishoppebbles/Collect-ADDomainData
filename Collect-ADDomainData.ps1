@@ -41,9 +41,9 @@
     Collect-ADDomainData.ps1 -LocalCollectionOnly
     Collects the datasets for the local system on the script host.
 .NOTES
-    Version 1.0.17
+    Version 1.0.18
     Author: Sam Pursglove
-    Last modified: 07 February 2024
+    Last modified: 15 February 2024
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -719,16 +719,18 @@ function Collect-DHCPLeases {
 #        $dhcp = Get-CimInstance Win32_NetworkAdapterConfiguration -Filter "DHCPEnabled=$true" | 
 #                    Where-Object {$_.DHCPServer -like "10.*" -or $_.DHCPServer -like "172.*" -or $_.DHCPServer -like "192.168.*"}
     
-    $dhcpCmdlets = Get-WindowsFeature -Name DHCP | Where-Object {$_.Installed -eq $true}
-
-    if ($dhcpCmdlets.count -gt 0) {
-        Get-DHCPServerv4Scope -ComputerName $server | 
-	        Get-DHCPServerv4Lease -ComputerName $server -AllLeases | 
-            Select-Object IPAddress,ScopeId,AddressState,ClientId,ClientType,Description,HostName,LeaseExpiryTime,ServerIP |
-	        Export-Csv dhcp_leases.csv -Append -NoTypeInformation
-    } else {
-        Write-Output 'FAILED: The DHCP server feature is not installed'
-    }
+    if(Get-Command Get-DhcpServerv4Scope -ErrorAction SilentlyContinue) {    
+		Get-DHCPServerv4Scope -ComputerName $server -OutVariable scope |
+	    	Select-Object ScopeId,SubnetMask,StartRange,EndRange,ActivatePolicies,LeaseDuration,Name,State,Type |
+	    	Export-Csv dhcp_scopes.csv -Append -NoTypeInformation
+	     
+		$scope | 
+			Get-DHCPServerv4Lease -ComputerName $server -AllLeases | 
+			Select-Object IPAddress,ScopeId,AddressState,ClientId,ClientType,Description,HostName,LeaseExpiryTime,ServerIP |
+	 		Export-Csv dhcp_leases.csv -Append -NoTypeInformation
+   	} else { 
+   		Write-Output 'DHCP cmdlets are not available.  Skipping DHCP data queries' 
+	}
 }
 
 
