@@ -729,7 +729,7 @@ function Collect-DHCPLeases {
 			Select-Object IPAddress,ScopeId,AddressState,ClientId,ClientType,Description,HostName,LeaseExpiryTime,ServerIP |
 	 		Export-Csv dhcp_leases.csv -Append -NoTypeInformation
    	} else { 
-   		Write-Output 'DHCP cmdlets are not available.  Skipping DHCP data queries' 
+   		Write-Output 'DHCP cmdlets are not available.  Skipping DHCP data queries.' 
 	}
 }
 
