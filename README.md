@@ -46,7 +46,7 @@ There may be circumstances where you have local admin in your target environment
 
 ```powershell
 # Attempt to enable WinRM/PS remoting via WMI for systems that don't have it configured
-$comps = <comper_name_array>
+$comps = <computer_name_array>
 $cimSessOption = New-CimSessionOption -Protocol Dcom
 
 foreach($c in $comps) {
