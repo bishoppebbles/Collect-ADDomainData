@@ -442,8 +442,8 @@ function Collect-LocalSystemData {
 function Collect-RemoteSystemData {
     Param($DN)
 
-    # Pull all computer objects listed in the Directory for the designated DN
-    $computers = Get-ADComputer -Filter * -Properties DistinguishedName,Enabled,IPv4Address,LastLogonDate,Name,OperatingSystem,SamAccountName -SearchBase $DN
+    # Pull all Windows computer objects listed in the Directory for the designated DN (will exclude domain joined Linux or Mac systems)
+    $computers = Get-ADComputer -Filter "OperatingSystem -like 'Windows*'" -Properties DistinguishedName,Enabled,IPv4Address,LastLogonDate,Name,OperatingSystem,SamAccountName -SearchBase $DN
 
     # Export domain computer account info
     Write-Output "Active Directory: Getting domain computer objects."
