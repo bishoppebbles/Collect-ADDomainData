@@ -41,9 +41,9 @@
     Collect-ADDomainData.ps1 -LocalCollectionOnly
     Collects the datasets for the local system on the script host.
 .NOTES
-    Version 1.0.18
+    Version 1.0.19
     Author: Sam Pursglove
-    Last modified: 15 February 2024
+    Last modified: 25 April 2024
 
     FakeHyena name credit goes to Kennon Lee.
 
