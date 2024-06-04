@@ -132,7 +132,7 @@ function getLocalUsers {
 #   1) Get-CimInstance -Query "Associators of {Win32_Group.Domain='$env:COMPUTERNAME',Name='Administrators'} where Role=GroupComponent"
 #   2) Get-CimInstance -ClassName Win32_Group -Filter "Name='Administrators'" | Get-CimAssociatedInstance -Association Win32_GroupUser
 function getLocalGroupMembers {
-    $sidRegex = "S-1-5-21-\d+-\d+-\d+-(\d{3,})"
+    $sidRegex = "S-1-5-21-.+-(\d+$)"
     
     try {
         # get all local groups
@@ -145,6 +145,8 @@ function getLocalGroupMembers {
     	    try {
                 $localGroupMem = Get-LocalGroupMember $group -ErrorAction Stop
                 foreach($member in $localGroupMem) {
+                    
+                    # parse the RID from the SID
                     if ($member.SID -match $sidRegex) {
                         $RID = $Matches[1]
                     } else {
@@ -204,6 +206,8 @@ function getLocalGroupMembers {
                 }        
 
                 $SID = ConvertTo-SID $_.GetType().InvokeMember("ObjectSID", 'GetProperty', $null, $_, $null)
+
+                # parse the RID from the SID
                 if ($SID -match $sidRegex) {
                         $RID = $Matches[1]
                     } else {
@@ -304,6 +308,7 @@ function Collect-LocalSystemData {
                       @{Name='Name'; Expression={$_.Name}},
                       @{Name='Domain'; Expression={$_.Domain}},
                       @{Name='SID'; Expression={$_.SID}},
+                      @{Name='RID'; Expression={$_.RID}},
                       @{Name='PrincipalSource'; Expression={$_.PrincipalSource}},
                       @{Name='ObjectClass'; Expression={$_.ObjectClass}} |
 	    Export-Csv -Path local_groups.csv -Append -NoTypeInformation
@@ -492,6 +497,7 @@ function Collect-RemoteSystemData {
                       @{Name='Name'; Expression={$_.Name}},
                       @{Name='Domain'; Expression={$_.Domain}},
                       @{Name='SID'; Expression={$_.SID}},
+                      @{Name='RID'; Expression={$_.RID}},
                       @{Name='PrincipalSource'; Expression={$_.PrincipalSource}},
                       @{Name='ObjectClass'; Expression={$_.ObjectClass}} |
         Export-Csv -Path local_groups.csv -Append -NoTypeInformation
