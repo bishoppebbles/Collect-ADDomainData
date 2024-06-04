@@ -41,7 +41,7 @@
     Collect-ADDomainData.ps1 -LocalCollectionOnly
     Collects the datasets for the local system on the script host.
 .NOTES
-    Version 1.0.20
+    Version 1.0.21
     Author: Sam Pursglove
     Last modified: 04 June 2024
 
@@ -116,12 +116,34 @@ function netConnects {
 
 # Try to first get local user account info using the PS cmdlet but if that is unavailable use WMI to get the data
 function getLocalUsers {
+    $date = Get-Date
+
     try {
         Get-LocalUser |
-            Select-Object Name,SID,@{Name='RID'; Expression={[regex]::Match($_.SID, '\d+$').Value}},Enabled,PasswordRequired,@{Name='PasswordChangeable'; Expression={$_.UserMayChangePassword}},PrincipalSource,Description,PasswordLastSet,LastLogon
+            Select-Object Name,
+                          SID,
+                          @{Name='RID'; Expression={[regex]::Match($_.SID, '\d+$').Value}},
+                          Enabled,
+                          PasswordRequired,
+                          @{Name='PasswordChangeable'; Expression={$_.UserMayChangePassword}},
+                          PrincipalSource,
+                          Description,
+                          PasswordLastSet,
+                          @{Name='PasswordLastSetDays'; Expression={if($_.PasswordLastSet -ne $null) {[math]::Round(($date - $_.PasswordLastSet).TotalDays, 0)} else {''}}},
+                          LastLogon
     } catch [System.Management.Automation.RuntimeException] {       
         Get-CimInstance -ClassName Win32_UserAccount -Filter "LocalAccount='True'" -Property * | 
-            Select-Object Name,SID,@{Name='RID'; Expression={[regex]::Match($_.SID, '\d+$').Value}},@{Name='Enabled'; Expression={if([bool]$_.Disabled) {'False'} else {'True'}}},PasswordRequired,PasswordChangeable,@{Name='PrincipalSource';Expression={if([bool]$_.LocalAccount) {'Local'}}},Description,@{Name='PasswordLastSet'; Expression={'Unavailable'}},@{Name='LastLogon'; Expression={'Unavailable'}}
+            Select-Object Name,
+                          SID,
+                          @{Name='RID'; Expression={[regex]::Match($_.SID, '\d+$').Value}},
+                          @{Name='Enabled'; Expression={if([bool]$_.Disabled) {'False'} else {'True'}}},
+                          PasswordRequired,
+                          PasswordChangeable,
+                          @{Name='PrincipalSource';Expression={if([bool]$_.LocalAccount) {'Local'}}},
+                          Description,
+                          @{Name='PasswordLastSet'; Expression={''}},
+                          @{Name='PasswordLastSetDays'; Expression={''}},
+                          @{Name='LastLogon'; Expression={''}}
     }
 }
 
@@ -317,7 +339,7 @@ function Collect-LocalSystemData {
     # Local user accounts
     Write-Output "Local: Getting local user accounts."
     getLocalUsers | 
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,SID,RID,Enabled,PasswordRequired,PasswordChangeable,PrincipalSource,Description,PasswordLastSet,LastLogon |
+        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,SID,RID,Enabled,PasswordRequired,PasswordChangeable,PrincipalSource,Description,PasswordLastSet,PasswordLastSetDays,LastLogon |
 	    Export-Csv -Path local_users.csv -Append -NoTypeInformation
 
     
@@ -521,7 +543,7 @@ function Collect-RemoteSystemData {
     Get-BrokenPSSessions 'LocalUsers'
 
     Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getLocalUsers} |
-        Select-Object PSComputerName,Name,SID,RID,Enabled,PasswordRequired,PasswordChangeable,PrincipalSource,Description,PasswordLastSet,LastLogon |
+        Select-Object PSComputerName,Name,SID,RID,Enabled,PasswordRequired,PasswordChangeable,PrincipalSource,Description,PasswordLastSet,PasswordLastSetDays,LastLogon |
 	    Export-Csv -Path local_users.csv -Append -NoTypeInformation
 
 
