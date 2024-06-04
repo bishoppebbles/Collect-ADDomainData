@@ -41,9 +41,9 @@
     Collect-ADDomainData.ps1 -LocalCollectionOnly
     Collects the datasets for the local system on the script host.
 .NOTES
-    Version 1.0.19
+    Version 1.0.20
     Author: Sam Pursglove
-    Last modified: 25 April 2024
+    Last modified: 04 June 2024
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -132,6 +132,8 @@ function getLocalUsers {
 #   1) Get-CimInstance -Query "Associators of {Win32_Group.Domain='$env:COMPUTERNAME',Name='Administrators'} where Role=GroupComponent"
 #   2) Get-CimInstance -ClassName Win32_Group -Filter "Name='Administrators'" | Get-CimAssociatedInstance -Association Win32_GroupUser
 function getLocalGroupMembers {
+    $sidRegex = "S-1-5-21-\d+-\d+-\d+-(\d{3,})"
+    
     try {
         # get all local groups
         $groups = Get-LocalGroup
@@ -143,11 +145,18 @@ function getLocalGroupMembers {
     	    try {
                 $localGroupMem = Get-LocalGroupMember $group -ErrorAction Stop
                 foreach($member in $localGroupMem) {
+                    if ($member.SID -match $sidRegex) {
+                        $RID = $Matches[1]
+                    } else {
+                        $RID = ''
+                    }                    
+
                     @{
                         GroupName       = $group.Name
                         Name            = $member.Name.split('\')[1]
                         Domain          = $member.Name.split('\')[0]
                         SID             = $member.SID
+                        RID             = $RID
                         PrincipalSource = $member.PrincipalSource
                         ObjectClass     = $member.ObjectClass
                     } 
@@ -158,6 +167,7 @@ function getLocalGroupMembers {
                     Name            = 'Get-LocalGroupMember InvalidOperationException - data not pulled'
                     Domain          = 'Get-LocalGroupMember InvalidOperationException - data not pulled'
                     SID             = 'Get-LocalGroupMember InvalidOperationException - data not pulled'
+                    RID             = 'Get-LocalGroupMember InvalidOperationException - data not pulled'
                     PrincipalSource = 'Get-LocalGroupMember InvalidOperationException - data not pulled'
                     ObjectClass     = 'Get-LocalGroupMember InvalidOperationException - data not pulled'
                 }
@@ -193,10 +203,18 @@ function getLocalGroupMembers {
                     $Matches.Clear()
                 }        
 
+                $SID = ConvertTo-SID $_.GetType().InvokeMember("ObjectSID", 'GetProperty', $null, $_, $null)
+                if ($SID -match $sidRegex) {
+                        $RID = $Matches[1]
+                    } else {
+                        $RID = ''
+                    } 
+
                 @{
                     Name            = $_.GetType().InvokeMember("Name", 'GetProperty', $null, $_, $null)
                     ObjectClass     = $_.GetType().InvokeMember("Class", 'GetProperty', $null, $_, $null)    
-                    SID             = ConvertTo-SID $_.GetType().InvokeMember("ObjectSID", 'GetProperty', $null, $_, $null)
+                    SID             = $SID
+                    RID             = $RID
                     Domain          = $domain
                     PrincipalSource = $source
                 }
@@ -210,7 +228,6 @@ function getLocalGroupMembers {
         # get group members for each local group
         $groupMembers = foreach($g in $groups) { 
             @{
-            #    Computername = $env:COMPUTERNAME
                 GroupName    = $g.Name[0]
                 GroupMembers = (localGroupMember -Group $g)
             }
@@ -226,6 +243,7 @@ function getLocalGroupMembers {
                     Name            = $member.Name
                     Domain          = $member.Domain
                     SID             = $member.SID
+                    RID             = $member.RID
                     PrincipalSource = $member.PrincipalSource
                     ObjectClass     = $member.ObjectClass            
                 }
