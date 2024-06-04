@@ -445,6 +445,19 @@ function Collect-LocalSystemData {
         Select-Object PSComputerName,HotFixID,Description,InstalledOn | 
         Export-Csv -Path hotfixes.csv -Append -NoTypeInformation
 
+
+    # Local hard drive storage information
+    Write-Output "Local: Getting hard drive storage information."
+
+    Get-PSDrive -PSProvider FileSystem | 
+        Select-Object Name,
+                      Root,
+                      Description,
+                      @{name='Used (GB)'; expression={[math]::Round($_.Used/1GB, 2)}},
+                      @{name='Free (GB)'; expression={[math]::Round($_.Free/1GB, 2)}},
+                      DisplayRoot |
+        Export-Csv -Path hard_drive_storage.csv -Append -NoTypeInformation
+
     
     # Shares
     Write-Output "Local: Getting shares."
@@ -678,6 +691,20 @@ function Collect-RemoteSystemData {
                       @{Name='Description'; Expression={$_.Description}},
                       @{Name='InstalledOn'; Expression={$_.InstalledOn}} | 
         Export-Csv -Path hotfixes.csv -Append -NoTypeInformation
+
+
+    # Hard drive storage information
+    Write-Output "Remoting: Getting hard drive storage information."
+    Get-BrokenPSSessions 'HardDriveInformation'
+
+    Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-PSDrive -PSProvider FileSystem} |
+        Select-Object Name,
+                      Root,
+                      Description,
+                      @{name='Used (GB)'; expression={[math]::Round($_.Used/1GB, 2)}},
+                      @{name='Free (GB)'; expression={[math]::Round($_.Free/1GB, 2)}},
+                      DisplayRoot |
+        Export-Csv -Path hard_drive_storage.csv -Append -NoTypeInformation
 
 
     # Shares
