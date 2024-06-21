@@ -41,9 +41,9 @@
     Collect-ADDomainData.ps1 -LocalCollectionOnly
     Collects the datasets for the local system on the script host.
 .NOTES
-    Version 1.0.21
+    Version 1.0.22
     Author: Sam Pursglove
-    Last modified: 04 June 2024
+    Last modified: 21 June 2024
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -472,7 +472,8 @@ function Collect-LocalSystemData {
     Write-Output "Local: Getting hard drive storage information."
 
     Get-PSDrive -PSProvider FileSystem | 
-        Select-Object Name,
+        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
+                      Name,
                       Root,
                       Description,
                       @{name='Used (GB)'; expression={[math]::Round($_.Used/1GB, 2)}},
@@ -720,7 +721,8 @@ function Collect-RemoteSystemData {
     Get-BrokenPSSessions 'HardDriveInformation'
 
     Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-PSDrive -PSProvider FileSystem} |
-        Select-Object Name,
+        Select-Object PSComputerName,
+                      Name,
                       Root,
                       Description,
                       @{name='Used (GB)'; expression={[math]::Round($_.Used/1GB, 2)}},
