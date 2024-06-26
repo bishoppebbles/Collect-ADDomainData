@@ -41,9 +41,9 @@
     Collect-ADDomainData.ps1 -LocalCollectionOnly
     Collects the datasets for the local system on the script host.
 .NOTES
-    Version 1.0.22
+    Version 1.0.23
     Author: Sam Pursglove
-    Last modified: 21 June 2024
+    Last modified: 26 June 2024
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -506,7 +506,7 @@ function Collect-RemoteSystemData {
 
     # Export domain computer account info
     Write-Output "Active Directory: Getting domain computer objects."
-    $computers | Export-Csv -Path domain_computers.csv -NoTypeInformation
+    $computers | Export-Csv -Path domain_computers.csv -Append -NoTypeInformation
 
     # Create PS sessions for Windows only systems
     $computers = $computers | Where-Object {$_.OperatingSystem -like "Windows*"}
