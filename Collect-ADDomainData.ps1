@@ -5,6 +5,12 @@
     By default this script collects various system datasets from workstations and servers in a Windows Active Directory (AD) domain environment as well as some AD datasets.  It also has an option to collect the same datasets for the local system.  This can be useful for non-domain joined (i.e., "standalone") systems.
 .PARAMETER OUName
     The specific OU name of interest.  Can be used to limit the collection scope in a domain environment
+.PARAMETER Migrated
+    XXXX
+.PARAMETER SearchBase
+    XXXX
+.PARAMETER Server
+    XXXX
 .PARAMETER DHCPServer
     Specify the server name if collecting Windows DHCP server scope and lease information with other domain data.
 .PARAMETER IncludeServerFeatures
@@ -41,9 +47,9 @@
     Collect-ADDomainData.ps1 -LocalCollectionOnly
     Collects the datasets for the local system on the script host.
 .NOTES
-    Version 1.0.23
+    Version 1.0.24
     Author: Sam Pursglove
-    Last modified: 26 June 2024
+    Last modified: 12 July 2024
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -68,7 +74,17 @@ param (
     [Parameter(ParameterSetName='Domain', Mandatory=$False, Position=0, HelpMessage='Target OU name')]
     [Parameter(ParameterSetName='ServerFeaturesOnly', Mandatory=$False, Position=0, HelpMessage='Target OU name')]
     [Parameter(ParameterSetName='ADOnly', Mandatory=$False, Position=0, HelpMessage='Target OU name')]
+    [Parameter(ParameterSetName='Migrated', Mandatory=$False, Position=0, HelpMessage='Target OU name')]
     [string]$OUName = '',
+
+    [Parameter(ParameterSetName='Migrated', Mandatory=$True, Position=0, HelpMessage='Switch to change the search type for AD migrated systems')]
+    [Switch]$Migrated,
+
+    [Parameter(ParameterSetName='Migrated', Mandatory=$True, Position=0, HelpMessage='Domain controller server')]
+    [string]$SearchBase = '',
+
+    [Parameter(ParameterSetName='Migrated', Mandatory=$True, Position=0, HelpMessage='Domain controller server')]
+    [string]$Server = '',
     
     [Parameter(ParameterSetName='DHCPOnly', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect DHCP server scope and lease data')]
     [Parameter(ParameterSetName='Domain', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect DHCP server scope and lease data')]
@@ -78,6 +94,7 @@ param (
     [Switch]$IncludeServerFeatures,
 
     [Parameter(ParameterSetName='Domain', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect AD user and group membership data')]
+    [Parameter(ParameterSetName='Migrated', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect AD user and group membership data')]
     [Switch]$IncludeActiveDirectory,
 
     [Parameter(ParameterSetName='DHCPOnly', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect DHCP server scope and lease data')]
@@ -87,6 +104,7 @@ param (
     [Switch]$ServerFeaturesOnly,
 
     [Parameter(ParameterSetName='ADOnly', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect AD user and group membership data')]
+    [Parameter(ParameterSetName='Migrated', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect AD user and group membership data')]
     [Switch]$ActiveDirectoryOnly,
 
     [Parameter(ParameterSetName='Local', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collects local system data, not domain systems')]
@@ -349,9 +367,9 @@ function Collect-LocalSystemData {
     $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
     $p = New-Object System.Security.Principal.WindowsPrincipal($id)
     if ($p.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        $localProcesses = Get-Process -IncludeUserName
+        $localProcesses = Get-Process -IncludeUserName -ErrorAction SilentlyContinue
     } else {
-        $localProcesses = Get-Process
+        $localProcesses = Get-Process -ErrorAction SilentlyContinue
     }
 
     $localProcesses |
@@ -501,8 +519,12 @@ function Collect-LocalSystemData {
 function Collect-RemoteSystemData {
     Param($DN)
 
-    # Pull all Windows computer objects listed in the Directory for the designated DN (will exclude domain joined Linux or Mac systems)
-    $computers = Get-ADComputer -Filter "OperatingSystem -like 'Windows*'" -Properties DistinguishedName,Enabled,IPv4Address,LastLogonDate,Name,OperatingSystem,SamAccountName -SearchBase $DN
+    if($Migrated) {
+        $computers = Get-ADComputer -Filter "msExchExtensionCustomAttribute1 -like '*$($OUName)*'" -Properties DistinguishedName,Enabled,IPv4Address,LastLogonDate,Name,OperatingSystem,SamAccountName -SearchBase $DN -Server $Server
+    } else {
+        # Pull all Windows computer objects listed in the Directory for the designated DN (will exclude domain joined Linux or Mac systems)
+        $computers = Get-ADComputer -Filter * -Properties DistinguishedName,Enabled,IPv4Address,LastLogonDate,Name,OperatingSystem,SamAccountName -SearchBase $DN
+    }
 
     # Export domain computer account info
     Write-Output "Active Directory: Getting domain computer objects."
@@ -558,7 +580,7 @@ function Collect-RemoteSystemData {
                         Select-Object Name,
                                       Id,
                                       Path,
-                                      @{Name='Hash'; Expression={if($_.Path -notlike '') {(Get-FileHash $_.Path).Hash}}},
+                                      @{Name='Hash'; Expression={if($_.Path -notlike '') {(Get-FileHash $_.Path -ErrorAction SilentlyContinue).Hash}}},
                                       UserName,
                                       Company,
                                       Description,
@@ -765,8 +787,12 @@ function Collect-RemoteSystemData {
 function Collect-ServerFeatures {
     Param($DN)
 
-    # Pull all computer objects listed in the Directory for the designated DN
-    $winServers = Get-ADComputer -Filter "OperatingSystem -like 'Windows Server*'" -SearchBase $DN
+    if($Migrated) {
+        $winServers = Get-ADComputer -Filter "(msExchExtensionCustomAttribute1 -like '*$($OUName)*') -and (OperatingSystem -like 'Windows Server*')" -Properties DistinguishedName,Enabled,IPv4Address,LastLogonDate,Name,OperatingSystem,SamAccountName -SearchBase $DN -Server $Server
+    } else {
+        # Pull all computer objects listed in the Directory for the designated DN
+        $winServers = Get-ADComputer -Filter "OperatingSystem -like 'Windows Server*'" -SearchBase $DN
+    }
     
     # Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
     Write-Output "Remoting: Creating PowerShell server sessions."
@@ -814,38 +840,45 @@ function Collect-ActiveDirectoryDatasets {
 
     # Get domain user account information
     Write-Output "Active Directory: Getting domain user objects."
-    Get-ADUser -Filter * -Properties AccountExpirationDate,AccountNotDelegated,AllowReversiblePasswordEncryption,CannotChangePassword,DisplayName,Name,Enabled,LastLogonDate,LockedOut,PasswordExpired,PasswordNeverExpires,PasswordNotRequired,SamAccountName,SmartcardLogonRequired -SearchBase $DN |
-	    Export-Csv -Path domain_users.csv -NoTypeInformation
-
-    # Get all OU groups and their members
-    #$adGroupMembers = New-Object System.Collections.ArrayList
-    Write-Output "Active Directory: Getting domain group memberships."
-    $groups = Get-ADGroup -Filter * -Properties * -SearchBase $DN
-
-    foreach($group in $groups) {
-        try {
-            Get-ADGroupMember -Identity $group.SamAccountName -Recursive -ErrorAction SilentlyContinue | 
-	            Where-Object {$_.objectClass -like "user"} |
-                ForEach-Object {
-                    @{
-                        UserSamAccountName  = $_.SamAccountName
-                        UserDN              = $_.distinguishedName
-                        UserName            = $_.name
-                        GroupSamAccountName = $group.SamAccountName
-                        GroupDN             = $group.DistinguishedName
-                    }
-                } | 
-            Select-Object @{Name='UserName'; Expression={$_.UserName}},
-                            @{Name='UserSamAccountName'; Expression={$_.UserSamAccountName}},
-                            @{Name='UserDN'; Expression={$_.UserDN}},
-                            @{Name='GroupDN'; Expression={$_.GroupDN}},
-                            @{Name='GroupSamAccountName'; Expression={$_.GroupSamAccountName}} | 
-            Export-Csv -Path ad_group_members.csv -Append -NoTypeInformation
-        } catch [Microsoft.ActiveDirectory.Management.ADException] {
-            Write-Output "$($group.SamAccountName): AD error recursing group (likely out of domain)"
-        }
+    
+    if ($Migrated) {
+        $adUsers = Get-ADUser -Filter "msExchExtensionCustomAttribute1 -like '*$($OUName)*'" -Properties AccountExpirationDate,AccountNotDelegated,AllowReversiblePasswordEncryption,CannotChangePassword,DisplayName,Name,Enabled,LastLogonDate,LockedOut,PasswordExpired,PasswordNeverExpires,PasswordNotRequired,SamAccountName,SmartcardLogonRequired -SearchBase $DN -Server $Server
+    } else {
+        $adUsers = Get-ADUser -Filter * -Properties AccountExpirationDate,AccountNotDelegated,AllowReversiblePasswordEncryption,CannotChangePassword,DisplayName,Name,Enabled,LastLogonDate,LockedOut,PasswordExpired,PasswordNeverExpires,PasswordNotRequired,SamAccountName,SmartcardLogonRequired -SearchBase $DN
     }
 
+    $adUsers | Export-Csv -Path domain_users.csv -Append -NoTypeInformation
+       
+    # Get all OU groups and their members
+    
+    if(-not $Migrated) {
+        Write-Output "Active Directory: Getting domain group memberships."
+        $groups = Get-ADGroup -Filter * -Properties * -SearchBase $DN
+
+        foreach($group in $groups) {
+            try {
+                Get-ADGroupMember -Identity $group.SamAccountName -Recursive -ErrorAction SilentlyContinue | 
+	                Where-Object {$_.objectClass -like "user"} |
+                    ForEach-Object {
+                        @{
+                            UserSamAccountName  = $_.SamAccountName
+                            UserDN              = $_.distinguishedName
+                            UserName            = $_.name
+                            GroupSamAccountName = $group.SamAccountName
+                            GroupDN             = $group.DistinguishedName
+                        }
+                    } | 
+                Select-Object @{Name='UserName'; Expression={$_.UserName}},
+                                @{Name='UserSamAccountName'; Expression={$_.UserSamAccountName}},
+                                @{Name='UserDN'; Expression={$_.UserDN}},
+                                @{Name='GroupDN'; Expression={$_.GroupDN}},
+                                @{Name='GroupSamAccountName'; Expression={$_.GroupSamAccountName}} | 
+                Export-Csv -Path ad_group_members.csv -Append -NoTypeInformation
+            } catch [Microsoft.ActiveDirectory.Management.ADException] {
+                Write-Output "$($group.SamAccountName): AD error recursing group (likely out of domain)"
+            }
+        }
+    }
 }
 
 
@@ -861,7 +894,10 @@ if (-not $LocalCollectionOnly) {
     }
     
     ### Build PowerShell sessions for Invoke-Command query reuse ###
-    if($OUName) {
+    
+    if($Migrated) {
+        $distinguishedName = $SearchBase
+    } elseif($OUName) {
         $distinguishedName = 'OU=' + $OUName + ',' + (Get-ADDomain).DistinguishedName
     } else {
         $distinguishedName = (Get-ADDomain).DistinguishedName
