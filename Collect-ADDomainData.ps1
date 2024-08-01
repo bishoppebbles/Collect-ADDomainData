@@ -47,9 +47,9 @@
     Collect-ADDomainData.ps1 -LocalCollectionOnly
     Collects the datasets for the local system on the script host.
 .NOTES
-    Version 1.0.24
+    Version 1.0.25
     Author: Sam Pursglove
-    Last modified: 12 July 2024
+    Last modified: 01 August 2024
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -74,7 +74,7 @@ param (
     [Parameter(ParameterSetName='Domain', Mandatory=$False, Position=0, HelpMessage='Target OU name')]
     [Parameter(ParameterSetName='ServerFeaturesOnly', Mandatory=$False, Position=0, HelpMessage='Target OU name')]
     [Parameter(ParameterSetName='ADOnly', Mandatory=$False, Position=0, HelpMessage='Target OU name')]
-    [Parameter(ParameterSetName='Migrated', Mandatory=$False, Position=0, HelpMessage='Target OU name')]
+    [Parameter(ParameterSetName='Migrated', Mandatory=$True, Position=0, HelpMessage='Target OU name')]
     [string]$OUName = '',
 
     [Parameter(ParameterSetName='Migrated', Mandatory=$True, Position=0, HelpMessage='Switch to change the search type for AD migrated systems')]
