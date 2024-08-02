@@ -47,9 +47,9 @@
     Collect-ADDomainData.ps1 -LocalCollectionOnly
     Collects the datasets for the local system on the script host.
 .NOTES
-    Version 1.0.25
+    Version 1.0.26
     Author: Sam Pursglove
-    Last modified: 01 August 2024
+    Last modified: 02 August 2024
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -520,11 +520,22 @@ function Collect-RemoteSystemData {
     Param($DN)
 
     if($Migrated) {
-        $computers = Get-ADComputer -Filter "msExchExtensionCustomAttribute1 -like '*$($OUName)*'" -Properties DistinguishedName,Enabled,IPv4Address,LastLogonDate,Name,OperatingSystem,SamAccountName -SearchBase $DN -Server $Server
+        $computersArgs = @{
+            Filter ="msExchExtensionCustomAttribute1 -like '*$($OUName)*'"
+            Properties = 'DistinguishedName','Enabled','IPv4Address','LastLogonDate','Name','OperatingSystem','SamAccountName'
+            SearchBase = $DN
+            Server = $Server
+        }
     } else {
         # Pull all Windows computer objects listed in the Directory for the designated DN (will exclude domain joined Linux or Mac systems)
-        $computers = Get-ADComputer -Filter * -Properties DistinguishedName,Enabled,IPv4Address,LastLogonDate,Name,OperatingSystem,SamAccountName -SearchBase $DN
+        $computersArgs = @{
+            Filter = "*"
+            Properties = 'DistinguishedName','Enabled','IPv4Address','LastLogonDate','Name','OperatingSystem','SamAccountName'
+            SearchBase = $DN
+        }
     }
+
+    $computers = Get-ADComputer @computersArgs
 
     # Export domain computer account info
     Write-Output "Active Directory: Getting domain computer objects."
@@ -788,11 +799,22 @@ function Collect-ServerFeatures {
     Param($DN)
 
     if($Migrated) {
-        $winServers = Get-ADComputer -Filter "(msExchExtensionCustomAttribute1 -like '*$($OUName)*') -and (OperatingSystem -like 'Windows Server*')" -Properties DistinguishedName,Enabled,IPv4Address,LastLogonDate,Name,OperatingSystem,SamAccountName -SearchBase $DN -Server $Server
+        $winServersArgs = @{
+            Filter = "(msExchExtensionCustomAttribute1 -like '*$($OUName)*') -and (OperatingSystem -like 'Windows Server*')"
+            Properties = 'DistinguishedName','Enabled','IPv4Address','LastLogonDate','Name','OperatingSystem','SamAccountName'
+            SearchBase = $DN
+            Server = $Server
+        }
     } else {
         # Pull all computer objects listed in the Directory for the designated DN
-        $winServers = Get-ADComputer -Filter "OperatingSystem -like 'Windows Server*'" -SearchBase $DN
+        $winServersArgs = @{
+            Filter = "OperatingSystem -like 'Windows Server*'"
+            Properties = 'DistinguishedName','Enabled','IPv4Address','LastLogonDate','Name','OperatingSystem','SamAccountName'
+            SearchBase = $DN
+        }
     }
+
+    $winServers = Get-ADComputer @winServersArgs
     
     # Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
     Write-Output "Remoting: Creating PowerShell server sessions."
@@ -842,10 +864,21 @@ function Collect-ActiveDirectoryDatasets {
     Write-Output "Active Directory: Getting domain user objects."
     
     if ($Migrated) {
-        $adUsers = Get-ADUser -Filter "msExchExtensionCustomAttribute1 -like '*$($OUName)*'" -Properties AccountExpirationDate,AccountNotDelegated,AllowReversiblePasswordEncryption,CannotChangePassword,DisplayName,Name,Enabled,LastLogonDate,LockedOut,PasswordExpired,PasswordNeverExpires,PasswordNotRequired,SamAccountName,SmartcardLogonRequired -SearchBase $DN -Server $Server
+        $adUsersArgs = @{
+            Filter = "msExchExtensionCustomAttribute1 -like '*$($OUName)*'"
+            Properties = 'AccountExpirationDate','AccountNotDelegated','AllowReversiblePasswordEncryption','CannotChangePassword','DisplayName','Name','Enabled','LastLogonDate','LockedOut','PasswordExpired','PasswordNeverExpires','PasswordNotRequired','SamAccountName','SmartcardLogonRequired'
+            SearchBase = $DN
+            Server = $Server
+        }
     } else {
-        $adUsers = Get-ADUser -Filter * -Properties AccountExpirationDate,AccountNotDelegated,AllowReversiblePasswordEncryption,CannotChangePassword,DisplayName,Name,Enabled,LastLogonDate,LockedOut,PasswordExpired,PasswordNeverExpires,PasswordNotRequired,SamAccountName,SmartcardLogonRequired -SearchBase $DN
+        $adUsersArgs = @{
+            Filter = "*"
+            Properties = 'AccountExpirationDate','AccountNotDelegated','AllowReversiblePasswordEncryption','CannotChangePassword','DisplayName','Name','Enabled','LastLogonDate','LockedOut','PasswordExpired','PasswordNeverExpires','PasswordNotRequired','SamAccountName','SmartcardLogonRequired'
+            SearchBase = $DN
+        }
     }
+
+    $adUsers = Get-ADUser @adUsersArgs
 
     $adUsers | Export-Csv -Path domain_users.csv -Append -NoTypeInformation
        
