@@ -4,13 +4,13 @@
 .DESCRIPTION
     By default this script collects various system datasets from workstations and servers in a Windows Active Directory (AD) domain environment as well as some AD datasets.  It also has an option to collect the same datasets for the local system.  This can be useful for non-domain joined (i.e., "standalone") systems.
 .PARAMETER OUName
-    The specific OU name of interest.  Can be used to limit the collection scope in a domain environment
+    The specific OU name of interest.  Can be used to limit the collection scope in a domain environment.
 .PARAMETER Migrated
-    XXXX
+    Switch to use if computer objects have migrated to a different domain.
 .PARAMETER SearchBase
-    XXXX
+    The distinguised name path to use for computer object searching.
 .PARAMETER Server
-    XXXX
+    The server to use for the target domain.
 .PARAMETER DHCPServer
     Specify the server name if collecting Windows DHCP server scope and lease information with other domain data.
 .PARAMETER IncludeServerFeatures
@@ -26,30 +26,33 @@
 .PARAMETER LocalCollectionOnly
     Collect the datasets on the local system (does not use PowerShell remoting functionality).
 .EXAMPLE
-    Collect-ADDomainData.ps1
+    .\Collect-ADDomainData.ps1
     Collects datasets for domain systems using the AD domain distinguished name of the script host.
 .EXAMPLE
-    Collect-ADDomainData.ps1 -OUName 'Finance'
+    .\Collect-ADDomainData.ps1 -OUName 'Finance'
     Collects datasets for domain systems using the AD domain distinguished name of the script host and the specified Organization Unit (OU).
 .EXAMPLE
-    Collect-ADDomainData.ps1 -OUName 'Finance' -DHCPServer dhcpsvr01 -IncludeServerFeatures -IncludeActiveDirectory
+    .\Collect-ADDomainData.ps1 -OUName 'Finance' -DHCPServer dhcpsvr01 -IncludeServerFeatures -IncludeActiveDirectory
     Collects datasets for domain systems using the AD domain distinguished name of the script host and the specified Organization Unit (OU).  It also collects Windows DHCP server scopes and leases, Windows Server feature and roles information, and Active Directory datasets.
 .EXAMPLE
-    Collect-ADDomainData.ps1 -DHCPServer dhcpsvr01 -DHCPOnly
+    .\Collect-ADDomainData.ps1 -DHCPServer dhcpsvr01 -DHCPOnly
     Collects only Windows DHCP server scope and lease information.
 .EXAMPLE
-    Collect-ADDomainData.ps1 -ActiveDirectoryOnly
+    .\Collect-ADDomainData.ps1 -ActiveDirectoryOnly
     Collects only Windows Active Directory domain user object and group memberships datasets using the AD domain distinguished name of the script host.
 .EXAMPLE
-    Collect-ADDomainData.ps1 -OUName 'Detroit' -ActiveDirectoryOnly
+    .\Collect-ADDomainData.ps1 -OUName 'Detroit' -ActiveDirectoryOnly
     Collects only Windows Active Directory domain user object and group memberships datasets using the AD domain distinguished name of the script host and the specified Organization Unit (OU).
 .EXAMPLE
-    Collect-ADDomainData.ps1 -LocalCollectionOnly
+    .\Collect-ADDomainData.ps1 -LocalCollectionOnly
     Collects the datasets for the local system on the script host.
+.EXAMPLE
+	.\Collect-ADDomainData.ps1 -OUName Manila -Migrated -SearchBase 'ou=computer,ou=location,dc=company,dc=org' -Server 'company.org'
+    Run with the OUName parameter and the Migrated switch to specific a target OU location of interest.  You must also specify the SearchBase and Server to use for the query.
 .NOTES
-    Version 1.0.26
+    Version 1.0.27
     Author: Sam Pursglove
-    Last modified: 02 August 2024
+    Last modified: 13 August 2024
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -147,7 +150,7 @@ function getLocalUsers {
                           PrincipalSource,
                           Description,
                           PasswordLastSet,
-                          @{Name='PasswordLastSetDays'; Expression={if($_.PasswordLastSet -ne $null) {[math]::Round(($date - $_.PasswordLastSet).TotalDays, 0)} else {''}}},
+                          @{Name='PasswordLastSetDays'; Expression={if($_.PasswordLastSet -ne $null) {($date - $_.PasswordLastSet).TotalDays} else {''}}},
                           LastLogon
     } catch [System.Management.Automation.RuntimeException] {       
         Get-CimInstance -ClassName Win32_UserAccount -Filter "LocalAccount='True'" -Property * | 
@@ -179,7 +182,7 @@ function getLocalGroupMembers {
         $groups = Get-LocalGroup
 
         # get the membership for all local groups
-	    # NOTE!!!! cannot use [pscustomobject] in remoting b/c of constrained language mode limits to core types
+	    # NOTE!!!! cannot use [pscustomobject] in remoting b/c of constrained language mode limits of core types
         
         foreach ($group in $groups) {
     	    try {
@@ -206,12 +209,12 @@ function getLocalGroupMembers {
             } catch [System.InvalidOperationException] {
                 @{
                     GroupName       = $group.Name
-                    Name            = 'Get-LocalGroupMember InvalidOperationException - data not pulled'
-                    Domain          = 'Get-LocalGroupMember InvalidOperationException - data not pulled'
-                    SID             = 'Get-LocalGroupMember InvalidOperationException - data not pulled'
-                    RID             = 'Get-LocalGroupMember InvalidOperationException - data not pulled'
-                    PrincipalSource = 'Get-LocalGroupMember InvalidOperationException - data not pulled'
-                    ObjectClass     = 'Get-LocalGroupMember InvalidOperationException - data not pulled'
+                    Name            = 'Get-LocalGroupMember InvalidOperationException'
+                    Domain          = 'Get-LocalGroupMember InvalidOperationException'
+                    SID             = 'Get-LocalGroupMember InvalidOperationException'
+                    RID             = 'Get-LocalGroupMember InvalidOperationException'
+                    PrincipalSource = 'Get-LocalGroupMember InvalidOperationException'
+                    ObjectClass     = 'Get-LocalGroupMember InvalidOperationException'
                 }
             }
         }        
@@ -357,7 +360,18 @@ function Collect-LocalSystemData {
     # Local user accounts
     Write-Output "Local: Getting local user accounts."
     getLocalUsers | 
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,SID,RID,Enabled,PasswordRequired,PasswordChangeable,PrincipalSource,Description,PasswordLastSet,PasswordLastSetDays,LastLogon |
+        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
+					  Name,
+   					  SID,
+		  			  RID,
+		 			  Enabled,
+					  PasswordRequired,
+	                  PasswordChangeable,
+				      PrincipalSource,
+		              Description,
+				      PasswordLastSet,
+		              @{Name='PasswordLastSetDays'; Expression={if($_.PasswordLastSetDays -ne '') {[math]::Round($_.PasswordLastSetDays, 0)}}},
+					  LastLogon |
 	    Export-Csv -Path local_users.csv -Append -NoTypeInformation
 
     
@@ -577,7 +591,18 @@ function Collect-RemoteSystemData {
     Get-BrokenPSSessions 'LocalUsers'
 
     Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getLocalUsers} |
-        Select-Object PSComputerName,Name,SID,RID,Enabled,PasswordRequired,PasswordChangeable,PrincipalSource,Description,PasswordLastSet,PasswordLastSetDays,LastLogon |
+        Select-Object PSComputerName,
+					  Name,
+	   				  SID,
+		  			  RID,
+		 			  Enabled,
+					  PasswordRequired,
+	   				  PasswordChangeable,
+		  			  PrincipalSource,
+		 			  Description,
+					  PasswordLastSet,
+	   				  @{Name='PasswordLastSetDays'; Expression={if($_.PasswordLastSetDays -ne '') {[math]::Round($_.PasswordLastSetDays, 0)}}},
+		  			  LastLogon |
 	    Export-Csv -Path local_users.csv -Append -NoTypeInformation
 
 
