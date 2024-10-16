@@ -5,6 +5,8 @@
     By default this script collects various system datasets from workstations and servers in a Windows Active Directory (AD) domain environment as well as some AD datasets.  It also has an option to collect the same datasets for the local system.  This can be useful for non-domain joined (i.e., "standalone") systems.
 .PARAMETER OUName
     The specific OU name of interest.  Can be used to limit the collection scope in a domain environment.
+.PARAMETER Region
+    The specific target region.
 .PARAMETER Migrated
     Switch to use if computer objects have migrated to a different domain.
 .PARAMETER SearchBase
@@ -47,12 +49,12 @@
     .\Collect-ADDomainData.ps1 -LocalCollectionOnly
     Collects the datasets for the local system on the script host.
 .EXAMPLE
-	.\Collect-ADDomainData.ps1 -OUName Manila -Migrated -SearchBase 'ou=computer,ou=location,dc=company,dc=org' -Server 'company.org'
+	.\Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org
     Run with the OUName parameter and the Migrated switch to specific a target OU location of interest.  You must also specify the SearchBase and Server to use for the query.
 .NOTES
-    Version 1.0.27
+    Version 1.0.28
     Author: Sam Pursglove
-    Last modified: 13 August 2024
+    Last modified: 16 October 2024
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -82,6 +84,9 @@ param (
 
     [Parameter(ParameterSetName='Migrated', Mandatory=$True, Position=0, HelpMessage='Switch to change the search type for AD migrated systems')]
     [Switch]$Migrated,
+
+    [Parameter(ParameterSetName='Migrated', Mandatory=$True, Position=0, HelpMessage='Target region name')]
+    [string]$Region = '',
 
     [Parameter(ParameterSetName='Migrated', Mandatory=$True, Position=0, HelpMessage='Domain controller server')]
     [string]$SearchBase = '',
@@ -533,26 +538,33 @@ function Collect-LocalSystemData {
 function Collect-RemoteSystemData {
     Param($DN)
 
+    Write-Output "Active Directory: Getting domain computer objects."
+
     if($Migrated) {
-        $computersArgs = @{
-            Filter ="msExchExtensionCustomAttribute1 -like '*$($OUName)*'"
-            Properties = 'DistinguishedName','Enabled','IPv4Address','LastLogonDate','Name','OperatingSystem','SamAccountName'
-            SearchBase = $DN
-            Server = $Server
+        $groupArgs = @{
+            Filter     = "Name -like '*Computers_$($Region)_$($OUName)'"
+            SearchBase = "ou=groups,$DN"
+            Server     = $Server
         }
+
+        $computers = Get-ADGroup @groupArgs | 
+            Get-ADGroupMember |
+            ForEach-Object {
+                Get-ADComputer -Filter "name -like '$($_.name)'" -Properties 'DistinguishedName','Enabled','IPv4Address','LastLogonDate','Name','OperatingSystem','SamAccountName' -SearchBase "ou=workstations,$DN" -Server $Server
+            }
+
     } else {
         # Pull all Windows computer objects listed in the Directory for the designated DN (will exclude domain joined Linux or Mac systems)
         $computersArgs = @{
-            Filter = "*"
+            Filter     = "*"
             Properties = 'DistinguishedName','Enabled','IPv4Address','LastLogonDate','Name','OperatingSystem','SamAccountName'
             SearchBase = $DN
         }
+
+        $computers = Get-ADComputer @computersArgs
     }
 
-    $computers = Get-ADComputer @computersArgs
-
-    # Export domain computer account info
-    Write-Output "Active Directory: Getting domain computer objects."
+    # Export domain computer account info    
     $computers | Export-Csv -Path domain_computers.csv -Append -NoTypeInformation
 
     # Create PS sessions for Windows only systems
