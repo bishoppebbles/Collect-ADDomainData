@@ -5,12 +5,12 @@
     By default this script collects various system datasets from workstations and servers in a Windows Active Directory (AD) domain environment as well as some AD datasets.  It also has an option to collect the same datasets for the local system.  This can be useful for non-domain joined (i.e., "standalone") systems.
 .PARAMETER OUName
     The specific OU name of interest.  Can be used to limit the collection scope in a domain environment.
-.PARAMETER Region
-    The specific target region.
 .PARAMETER Migrated
     Switch to use if computer objects have migrated to a different domain.
+.PARAMETER Region
+    The specific target region.
 .PARAMETER SearchBase
-    The distinguished name path to use for computer object searching.
+    The top level distinguished name path to use for computer object searching.
 .PARAMETER Server
     The server to use for the target domain.
 .PARAMETER DHCPServer
@@ -37,7 +37,7 @@
     .\Collect-ADDomainData.ps1 -OUName 'Finance' -DHCPServer dhcpsvr01 -IncludeServerFeatures -IncludeActiveDirectory
     Collects datasets for domain systems using the AD domain distinguished name of the script host and the specified Organization Unit (OU).  It also collects Windows DHCP server scopes and leases, Windows Server feature and roles information, and Active Directory datasets.
 .EXAMPLE
-    .\Collect-ADDomainData.ps1 -DHCPServer dhcpsvr01 -DHCPOnly
+    .\Collect-ADDomainData.ps1 -DHCPServer dhcpsvr01,dhcpsvr02 -DHCPOnly
     Collects only Windows DHCP server scope and lease information.
 .EXAMPLE
     .\Collect-ADDomainData.ps1 -ActiveDirectoryOnly
@@ -52,9 +52,9 @@
 	.\Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org
     Run with the OUName parameter and the Migrated switch to specific a target OU location of interest.  You must also specify the SearchBase and Server to use for the query.
 .NOTES
-    Version 1.0.28
+    Version 1.0.29
     Author: Sam Pursglove
-    Last modified: 16 October 2024
+    Last modified: 17 October 2024
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -96,7 +96,7 @@ param (
     
     [Parameter(ParameterSetName='DHCPOnly', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect DHCP server scope and lease data')]
     [Parameter(ParameterSetName='Domain', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect DHCP server scope and lease data')]
-    [string]$DHCPServer,
+    $DHCPServer = @(),
 
     [Parameter(ParameterSetName='Domain', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect Windows Server Feature data')]
     [Switch]$IncludeServerFeatures,
@@ -535,10 +535,8 @@ function Collect-LocalSystemData {
 }
 
 
-function Collect-RemoteSystemData {
+function Get-DomainComputerObjects {
     Param($DN)
-
-    Write-Output "Active Directory: Getting domain computer objects."
 
     if($Migrated) {
         $groupArgs = @{
@@ -547,7 +545,7 @@ function Collect-RemoteSystemData {
             Server     = $Server
         }
 
-        $computers = Get-ADGroup @groupArgs | 
+        Get-ADGroup @groupArgs | 
             Get-ADGroupMember |
             ForEach-Object {
                 Get-ADComputer -Filter "name -like '$($_.name)'" -Properties 'DistinguishedName','Enabled','IPv4Address','LastLogonDate','Name','OperatingSystem','SamAccountName' -SearchBase "ou=workstations,$DN" -Server $Server
@@ -561,9 +559,17 @@ function Collect-RemoteSystemData {
             SearchBase = $DN
         }
 
-        $computers = Get-ADComputer @computersArgs
+        Get-ADComputer @computersArgs
     }
+}
 
+
+function Collect-RemoteSystemData {
+    Param($DN)
+    
+    Write-Output "Active Directory: Getting domain computer objects."
+    $computers = Get-DomainComputerObjects $DN
+    
     # Export domain computer account info    
     $computers | Export-Csv -Path domain_computers.csv -Append -NoTypeInformation
 
@@ -835,23 +841,8 @@ function Collect-RemoteSystemData {
 function Collect-ServerFeatures {
     Param($DN)
 
-    if($Migrated) {
-        $winServersArgs = @{
-            Filter = "(msExchExtensionCustomAttribute1 -like '*$($OUName)*') -and (OperatingSystem -like 'Windows Server*')"
-            Properties = 'DistinguishedName','Enabled','IPv4Address','LastLogonDate','Name','OperatingSystem','SamAccountName'
-            SearchBase = $DN
-            Server = $Server
-        }
-    } else {
-        # Pull all computer objects listed in the Directory for the designated DN
-        $winServersArgs = @{
-            Filter = "OperatingSystem -like 'Windows Server*'"
-            Properties = 'DistinguishedName','Enabled','IPv4Address','LastLogonDate','Name','OperatingSystem','SamAccountName'
-            SearchBase = $DN
-        }
-    }
-
-    $winServers = Get-ADComputer @winServersArgs
+    Write-Output "Active Directory: Getting server OS domain computer objects."
+    $winServers = Get-DomainComputerObjects $DN | Where-Object {$_.OperatingSystem -like 'Windows Server*'}
     
     # Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
     Write-Output "Remoting: Creating PowerShell server sessions."
@@ -880,14 +871,16 @@ function Collect-DHCPLeases {
 #                    Where-Object {$_.DHCPServer -like "10.*" -or $_.DHCPServer -like "172.*" -or $_.DHCPServer -like "192.168.*"}
     
     if(Get-Command Get-DhcpServerv4Scope -ErrorAction SilentlyContinue) {    
-		Get-DHCPServerv4Scope -ComputerName $server -OutVariable scope |
-	    	Select-Object ScopeId,SubnetMask,StartRange,EndRange,ActivatePolicies,LeaseDuration,Name,State,Type |
-	    	Export-Csv dhcp_scopes.csv -Append -NoTypeInformation
+		foreach($s in $server) {
+            Get-DHCPServerv4Scope -ComputerName $s -OutVariable scope |
+	    	    Select-Object ScopeId,SubnetMask,StartRange,EndRange,ActivatePolicies,LeaseDuration,Name,State,Type |
+	    	    Export-Csv dhcp_scopes.csv -Append -NoTypeInformation
 	     
-		$scope | 
-			Get-DHCPServerv4Lease -ComputerName $server -AllLeases | 
-			Select-Object IPAddress,ScopeId,AddressState,ClientId,ClientType,Description,HostName,LeaseExpiryTime,ServerIP |
-	 		Export-Csv dhcp_leases.csv -Append -NoTypeInformation
+		    $scope | 
+			    Get-DHCPServerv4Lease -ComputerName $s -AllLeases | 
+			    Select-Object IPAddress,ScopeId,AddressState,ClientId,ClientType,Description,HostName,LeaseExpiryTime,ServerIP |
+	 		    Export-Csv dhcp_leases.csv -Append -NoTypeInformation
+        }
    	} else { 
    		Write-Output 'DHCP cmdlets are not available.  Skipping DHCP data queries.' 
 	}
