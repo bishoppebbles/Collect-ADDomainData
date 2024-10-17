@@ -52,7 +52,7 @@
 	.\Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org
     Run with the OUName parameter and the Migrated switch to specific a target OU location of interest.  You must also specify the SearchBase and Server to use for the query.
 .NOTES
-    Version 1.0.29
+    Version 1.0.30
     Author: Sam Pursglove
     Last modified: 17 October 2024
 
@@ -895,48 +895,108 @@ function Collect-ActiveDirectoryDatasets {
     
     if ($Migrated) {
         $adUsersArgs = @{
-            Filter = "msExchExtensionCustomAttribute1 -like '*$($OUName)*'"
-            Properties = 'AccountExpirationDate','AccountNotDelegated','AllowReversiblePasswordEncryption','CannotChangePassword','DisplayName','Name','Enabled','LastLogonDate','LockedOut','PasswordExpired','PasswordNeverExpires','PasswordNotRequired','SamAccountName','SmartcardLogonRequired'
-            SearchBase = $DN
+            Filter = "Name -like `"*Users_$($Region)_$($OUName)`""
+            SearchBase = "ou=groups,$DN"
             Server = $Server
         }
+
+        $adUsers = Get-ADGroup @adUsersArgs |
+            Get-ADGroupMember |
+            ForEach-Object {
+                Get-ADUser -Filter "SamAccountName -like `"$($_.SamAccountName)`"" -Properties 'AccountExpirationDate','AccountNotDelegated','AllowReversiblePasswordEncryption','CannotChangePassword','DisplayName','Name','Enabled','LastLogonDate','LockedOut','PasswordExpired','PasswordNeverExpires','PasswordNotRequired','SamAccountName','SmartcardLogonRequired' -SearchBase "ou=users,$DN" -Server $Server
+            }
+
     } else {
         $adUsersArgs = @{
             Filter = "*"
             Properties = 'AccountExpirationDate','AccountNotDelegated','AllowReversiblePasswordEncryption','CannotChangePassword','DisplayName','Name','Enabled','LastLogonDate','LockedOut','PasswordExpired','PasswordNeverExpires','PasswordNotRequired','SamAccountName','SmartcardLogonRequired'
             SearchBase = $DN
         }
-    }
 
-    $adUsers = Get-ADUser @adUsersArgs
+        $adUsers = Get-ADUser @adUsersArgs
+    }
 
     $adUsers | Export-Csv -Path domain_users.csv -Append -NoTypeInformation
        
     # Get all OU groups and their members
-    
-    if(-not $Migrated) {
+    if($Migrated) {
         Write-Output "Active Directory: Getting domain group memberships."
-        $groups = Get-ADGroup -Filter * -Properties * -SearchBase $DN
+        $groups = Get-ADGroup -Filter * -Properties Members,msExchExtensionCustomAttribute1 -SearchBase $('OU=' + $OUName + ',' + (Get-ADDomain).DistinguishedName)
 
+        foreach($group in $groups) {
+            $members = $group.Members
+
+            # if a group is empty document it
+            if($members.Count -eq 0) {
+                Write-Output "$($group.Name): $($group.DistinguishedName)" | Out-File EmptyGroups.txt -Append
+            }
+
+            Write-Output "In group: $($group)"
+
+            # export data about each group member using the Get-ADObject cmdlet while looking in the specified
+            # $Server domain and then in the GC if that fails; does not look up group memberships recursively
+            foreach($mem in $members) {
+                try {
+                    Get-ADObject $mem -Properties msExchExtensionCustomAttribute1,SamAccountName -Server $Server | 
+                        Where-Object {$_.ObjectClass -notlike 'computer'} |
+                        Select-Object @{Name='GroupDistinguishedName'; Expression={$group.DistinguishedName}},
+                                      @{Name='GroupSamAccountName'; Expression={$group.SamAccountName}},
+                                      @{Name='Name'; Expression={$_.Name}},
+                                      @{Name='SamAccountName'; Expression={$_.SamAccountName}},
+                                      @{Name='Location'; Expression={
+                                                            $_.msExchExtensionCustomAttribute1 | 
+                                                                ForEach-Object {
+                                                                    if($_.ToString() -match "iPostSite\|(.*)") {
+                                                                        $Matches[1]
+                                                                    }
+                                                                }
+                                                         }},
+                                      @{Name='DistinguishedName'; Expression={$_.DistinguishedName}},
+                                      @{Name='ObjectClass'; Expression={$_.ObjectClass}} |
+                        Export-Csv -Path ad_group_members.csv -Append -NoTypeInformation
+                } catch {
+                    try {
+                        Get-ADObject $mem -Properties msExchExtensionCustomAttribute1,SamAccountName -Server :3268 | 
+                            Where-Object {$_.ObjectClass -notlike 'computer'} |
+                            Select-Object @{Name='GroupDistinguishedName'; Expression={$group.DistinguishedName}},
+                                          @{Name='GroupSamAccountName'; Expression={$group.SamAccountName}},
+                                          @{Name='Name'; Expression={$_.Name}},
+                                          @{Name='SamAccountName'; Expression={$_.SamAccountName}},
+                                          @{Name='Location'; Expression={
+                                                            $_.msExchExtensionCustomAttribute1 | 
+                                                                ForEach-Object {
+                                                                    if($_.ToString() -match "iPostSite\|(.*)") {
+                                                                        $Matches[1]
+                                                                    }
+                                                                }
+                                                         }},
+                                          @{Name='DistinguishedName'; Expression={$_.DistinguishedName}},
+                                          @{Name='ObjectClass'; Expression={$_.ObjectClass}} |
+                            Export-Csv -Path ad_group_members.csv -Append -NoTypeInformation
+                    } catch {
+                        Write-Output "`tCould not located object: $($mem)"
+                    }   
+                }    
+            }
+        }
+    } else {
+        Write-Output "Active Directory: Getting domain group memberships."
+        $groups = Get-ADGroup -Filter * -Properties msExchExtensionCustomAttribute1 -SearchBase $DN
+
+        # export data and search recursively in the current domain for each
+        # group member using the Get-ADGroup and Get-ADGroupMember cmdlets
         foreach($group in $groups) {
             try {
                 Get-ADGroupMember -Identity $group.SamAccountName -Recursive -ErrorAction SilentlyContinue | 
-	                Where-Object {$_.objectClass -like "user"} |
-                    ForEach-Object {
-                        @{
-                            UserSamAccountName  = $_.SamAccountName
-                            UserDN              = $_.distinguishedName
-                            UserName            = $_.name
-                            GroupSamAccountName = $group.SamAccountName
-                            GroupDN             = $group.DistinguishedName
-                        }
-                    } | 
-                Select-Object @{Name='UserName'; Expression={$_.UserName}},
-                                @{Name='UserSamAccountName'; Expression={$_.UserSamAccountName}},
-                                @{Name='UserDN'; Expression={$_.UserDN}},
-                                @{Name='GroupDN'; Expression={$_.GroupDN}},
-                                @{Name='GroupSamAccountName'; Expression={$_.GroupSamAccountName}} | 
-                Export-Csv -Path ad_group_members.csv -Append -NoTypeInformation
+	                Where-Object {$_.ObjectClass -like "user"} |
+                    Select-Object @{Name='GroupDistinguishedName'; Expression={$group.DistinguishedName}},
+                                  @{Name='GroupSamAccountName'; Expression={$group.SamAccountName}},
+                                  @{Name='Name'; Expression={$_.Name}},
+                                  @{Name='SamAccountName'; Expression={$_.SamAccountName}},
+                                  @{Name='Location'; Expression={}},
+                                  @{Name='DistinguishedName'; Expression={$_.DistinguishedName}},
+                                  @{Name='ObjectClass'; Expression={$_.ObjectClass}} |
+                    Export-Csv -Path ad_group_members.csv -Append -NoTypeInformation
             } catch [Microsoft.ActiveDirectory.Management.ADException] {
                 Write-Output "$($group.SamAccountName): AD error recursing group (likely out of domain)"
             }
