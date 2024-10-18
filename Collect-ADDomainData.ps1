@@ -52,9 +52,9 @@
 	.\Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org
     Run with the OUName parameter and the Migrated switch to specific a target OU location of interest.  You must also specify the SearchBase and Server to use for the query.
 .NOTES
-    Version 1.0.30
+    Version 1.0.31
     Author: Sam Pursglove
-    Last modified: 17 October 2024
+    Last modified: 18 October 2024
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -981,7 +981,7 @@ function Collect-ActiveDirectoryDatasets {
         }
     } else {
         Write-Output "Active Directory: Getting domain group memberships."
-        $groups = Get-ADGroup -Filter * -Properties msExchExtensionCustomAttribute1 -SearchBase $DN
+        $groups = Get-ADGroup -Filter * -SearchBase $DN
 
         # export data and search recursively in the current domain for each
         # group member using the Get-ADGroup and Get-ADGroupMember cmdlets
