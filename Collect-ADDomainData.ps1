@@ -52,7 +52,7 @@
 	.\Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org
     Run with the OUName parameter and the Migrated switch to specific a target OU location of interest.  You must also specify the SearchBase and Server to use for the query.
 .NOTES
-    Version 1.0.32
+    Version 1.0.33
     Author: Sam Pursglove
     Last modified: 29 October 2024
 
@@ -507,7 +507,7 @@ function Collect-LocalSystemData {
     # BitLocker information
     Write-Output "Local: Getting BitLocker information."
     Get-BitLockerVolume |
-        Select-Object PSComputerName,
+        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
                       MountPoint,
                       EncryptionMethod,
                       AutoUnlockEnabled,
@@ -522,6 +522,26 @@ function Collect-LocalSystemData {
                       @{name='CapacityGB'; expression={[math]::Round($_.CapacityGB, 1)}},
                       @{Name='KeyProtector'; Expression={$_.KeyProtector -join '|'}} |
         Export-Csv -Path bitlocker.csv -Append -NoTypeInformation
+
+
+    # Physical disk information
+    Write-Output "Local: Getting physical disk information."
+    Get-PhysicalDisk |
+        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
+                      OperationalStatus,
+                      HealthStatus,
+                      BusType,
+                      MediaType,
+                      SpindleSpeed,
+                      Manufacturer,
+                      Model,
+                      FirmwareVersion,
+                      IsPartial,
+                      LogicalSectorSize,
+                      PhysicalSectorSize,
+                      @{name='AllocatedSizeGB'; expression={[math]::Round($_.AllocatedSize/1GB, 1)}},
+                      @{name='SizeGB'; expression={[math]::Round($_.Size/1GB, 1)}} |
+        Export-Csv -Path physical_disk.csv -Append -NoTypeInformation
 
 
     # Local hard drive storage information
@@ -566,14 +586,14 @@ function Get-DomainComputerObjects {
         Get-ADGroup @groupArgs | 
             Get-ADGroupMember |
             ForEach-Object {
-                Get-ADComputer -Filter "name -like '$($_.name)'" -Properties 'DistinguishedName','Enabled','IPv4Address','LastLogonDate','Name','OperatingSystem','SamAccountName' -SearchBase "ou=workstations,$DN" -Server $Server
+                Get-ADComputer -Filter "name -like '$($_.name)'" -Properties IPv4Address,LastLogonDate,OperatingSystem -SearchBase "ou=workstations,$DN" -Server $Server
             }
 
     } else {
         # Pull all Windows computer objects listed in the Directory for the designated DN (will exclude domain joined Linux or Mac systems)
         $computersArgs = @{
             Filter     = "*"
-            Properties = 'DistinguishedName','Enabled','IPv4Address','LastLogonDate','Name','OperatingSystem','SamAccountName'
+            Properties = 'IPv4Address','LastLogonDate','OperatingSystem'
             SearchBase = $DN
         }
 
@@ -830,6 +850,26 @@ function Collect-RemoteSystemData {
         Export-Csv -Path bitlocker.csv -Append -NoTypeInformation
 
 
+    # Physical disk information
+    Write-Output "Remoting: Getting physical disk information."
+    Invoke-Command -Session (Get-PSSession) -ScriptBlock {Get-PhysicalDisk} |
+        Select-Object PSComputerName,
+                      OperationalStatus,
+                      HealthStatus,
+                      BusType,
+                      MediaType,
+                      SpindleSpeed,
+                      Manufacturer,
+                      Model,
+                      FirmwareVersion,
+                      IsPartial,
+                      LogicalSectorSize,
+                      PhysicalSectorSize,
+                      @{name='AllocatedSizeGB'; expression={[math]::Round($_.AllocatedSize/1GB, 1)}},
+                      @{name='SizeGB'; expression={[math]::Round($_.Size/1GB, 1)}} |
+        Export-Csv -Path physical_disk.csv -Append -NoTypeInformation
+
+
     # Hard drive storage information
     Write-Output "Remoting: Getting hard drive storage information."
     Get-BrokenPSSessions 'HardDriveInformation'
@@ -941,13 +981,13 @@ function Collect-ActiveDirectoryDatasets {
         $adUsers = Get-ADGroup @adUsersArgs |
             Get-ADGroupMember |
             ForEach-Object {
-                Get-ADUser -Filter "SamAccountName -like `"$($_.SamAccountName)`"" -Properties 'AccountExpirationDate','AccountNotDelegated','AllowReversiblePasswordEncryption','CannotChangePassword','DisplayName','Name','Enabled','LastLogonDate','LockedOut','PasswordExpired','PasswordNeverExpires','PasswordNotRequired','SamAccountName','SmartcardLogonRequired' -SearchBase "ou=users,$DN" -Server $Server
+                Get-ADUser -Filter "SamAccountName -like `"$($_.SamAccountName)`"" -Properties AccountExpirationDate,AccountNotDelegated,AllowReversiblePasswordEncryption,CannotChangePassword,LastLogonDate,LockedOut,PasswordExpired,PasswordNeverExpires,PasswordNotRequired,SmartcardLogonRequired -SearchBase "ou=users,$DN" -Server $Server
             }
 
     } else {
         $adUsersArgs = @{
             Filter = "*"
-            Properties = 'AccountExpirationDate','AccountNotDelegated','AllowReversiblePasswordEncryption','CannotChangePassword','DisplayName','Name','Enabled','LastLogonDate','LockedOut','PasswordExpired','PasswordNeverExpires','PasswordNotRequired','SamAccountName','SmartcardLogonRequired'
+            Properties = 'AccountExpirationDate','AccountNotDelegated','AllowReversiblePasswordEncryption','CannotChangePassword','LastLogonDate','LockedOut','PasswordExpired','PasswordNeverExpires','PasswordNotRequired','SmartcardLogonRequired'
             SearchBase = $DN
         }
 
