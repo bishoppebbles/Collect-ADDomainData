@@ -90,7 +90,11 @@ foreach($c in $comps) {
 * **General system information**
     * Output fields: WindowsCurrentVersion, WindowsEditionId, WindowsVersion,	BiosManufacturer,	BiosSMBIOS, BIOSVersion,	BiosFirmwareType,	BiosReleaseDate,	BiosSeralNumber,	BiosCurrentLanguage,	CsDomain,	CsDomainRole,	CsManufacturer,	CsModel,	CsProcessors,	CsNumberOfProcessors,	CsNumberOfCores,	CsNumberOfLogicalProcessors,	CsPartOfDomain,	CsTotalPhysicalMemory (GB),	CsMaxClockSpeed,	OsName,	OsType,	OsVersion,	OsBuildNumber,	OsLocale,	OsManufacturer,	OsArchitecture,	OsLanguage,	KeyboardLayout,	TimeZone,	LogonServer,	PowerPlatformRole
 * **System hot fix information**
-    * Output fields: HotFixID, Description,InstalledOn
+    * Output fields: HotFixID, Description, InstalledOn
+* **BitLocker information**
+    * MountPoint, EncryptionMethod, AutoUnlockEnabled, AutoUnlockKeyStored, MetadataVersion, VolumeStatus, ProtectionStatus, LockStatus, EncryptionPercentage, WipePercentage, VolumeType, CapacityGB, KeyProtector
+* **Local hard drive storage information**
+    * Name, Root, Description, Used (GB), Free (GB), DisplayRoot 
 * **Shares**
     * Output fields: Name, Path, Description, EncryptData, CurrentUsers, ShareType
 * **Share permissions**
