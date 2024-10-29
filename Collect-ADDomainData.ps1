@@ -52,9 +52,9 @@
 	.\Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org
     Run with the OUName parameter and the Migrated switch to specific a target OU location of interest.  You must also specify the SearchBase and Server to use for the query.
 .NOTES
-    Version 1.0.31
+    Version 1.0.32
     Author: Sam Pursglove
-    Last modified: 18 October 2024
+    Last modified: 29 October 2024
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -504,10 +504,28 @@ function Collect-LocalSystemData {
         Select-Object PSComputerName,HotFixID,Description,InstalledOn | 
         Export-Csv -Path hotfixes.csv -Append -NoTypeInformation
 
+    # BitLocker information
+    Write-Output "Local: Getting BitLocker information."
+    Get-BitLockerVolume |
+        Select-Object PSComputerName,
+                      MountPoint,
+                      EncryptionMethod,
+                      AutoUnlockEnabled,
+                      AutoUnlockKeyStored,
+                      MetadataVersion,
+                      VolumeStatus,
+                      ProtectionStatus,
+                      LockStatus,
+                      EncryptionPercentage,
+                      WipePercentage,
+                      VolumeType,
+                      @{name='CapacityGB'; expression={[math]::Round($_.CapacityGB, 1)}},
+                      @{Name='KeyProtector'; Expression={$_.KeyProtector -join '|'}} |
+        Export-Csv -Path bitlocker.csv -Append -NoTypeInformation
+
 
     # Local hard drive storage information
     Write-Output "Local: Getting hard drive storage information."
-
     Get-PSDrive -PSProvider FileSystem | 
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
                       Name,
@@ -790,6 +808,26 @@ function Collect-RemoteSystemData {
                       @{Name='Description'; Expression={$_.Description}},
                       @{Name='InstalledOn'; Expression={$_.InstalledOn}} | 
         Export-Csv -Path hotfixes.csv -Append -NoTypeInformation
+
+    
+    # BitLocker information
+    Write-Output "Remoting: Getting BitLocker information."
+    Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-BitLockerVolume} |
+        Select-Object PSComputerName,
+                      MountPoint,
+                      EncryptionMethod,
+                      AutoUnlockEnabled,
+                      AutoUnlockKeyStored,
+                      MetadataVersion,
+                      VolumeStatus,
+                      rotectionStatus,
+                      LockStatus,
+                      EncryptionPercentage,
+                      WipePercentage,
+                      VolumeType,
+                      @{name='CapacityGB'; expression={[math]::Round($_.CapacityGB, 1)}},
+                      @{Name='KeyProtector'; Expression={$_.KeyProtector -join '|'}} |
+        Export-Csv -Path bitlocker.csv -Append -NoTypeInformation
 
 
     # Hard drive storage information
