@@ -33,6 +33,9 @@
     .\Collect-ADDomainData.ps1
     Collects datasets for domain systems using the AD domain distinguished name of the script host.
 .EXAMPLE
+    .\Collect-ADDomainData.ps1 -DHCPServer dhcpsvr01 -IncludeServerFeatures -IncludeActiveDirectory
+    Collects all datasets for domain systems using the AD domain distinguished name of the script host system.  This includes server specific features plus Active Directory and DHCP data.
+.EXAMPLE
     .\Collect-ADDomainData.ps1 -OUName 'Finance'
     Collects datasets for domain systems using the AD domain distinguished name of the script host and the specified Organization Unit (OU).
 .EXAMPLE
@@ -66,7 +69,7 @@
     Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org -ActiveDirectoryOnly
     Run Active Directory only collection with the Migrated switch.
 .NOTES
-    Version 1.0.35
+    Version 1.0.36
     Author: Sam Pursglove
     Last modified: 30 October 2024
 
