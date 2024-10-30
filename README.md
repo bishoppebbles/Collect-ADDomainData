@@ -6,6 +6,9 @@ This is a collection of commands to pull a variety of datasets in an Active Dire
 # Collects datasets for domain systems using the AD domain distinguished name of the script host system.
 Collect-ADDomainData.ps1
 
+# Collects all datasets for domain systems using the AD domain distinguished name of the script host system.  This includes server specific features plus Active Directory and DHCP data.
+Collect-ADDomainData.ps1 -DHCPServer dhcpsvr01 -IncludeServerFeatures -IncludeActiveDirectory
+
 # Collects datasets for domain systems using the AD domain distinguished name of the script host and the specified Organization Unit (OU).
 Collect-ADDomainData.ps1 -OUName 'Finance'
 
