@@ -23,6 +23,21 @@ Collect-ADDomainData.ps1 -OUName 'Detroit' -ActiveDirectoryOnly
 
 # Collects the datasets for the local system on the script host.
 Collect-ADDomainData.ps1 -LocalCollectionOnly
+
+# Run with the OUName parameter and the Migrated switch to target a specific OU location of interest.  You must also specify the Region, SearchBase, and Server paramters for any query with the Migrated switch.
+Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org
+
+# The same as the last example but only try collection for systems that previously failed their WinRM connection for PS Remoting
+Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org -FailedWinRM
+
+# Run collection for all applicable datasets using the Migrated switch.
+Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org -DHCPServer dhcpsvr01 -IncludeServerFeatures -IncludeActiveDirectory
+
+# Run collection with the Migrated switch and only pull server specific collection (ServerFeaturesOnly) that previously failed (FailedWinRM).
+Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org -FailedWinRM -ServerFeaturesOnly
+
+# Run Active Directory only collection with the Migrated switch.
+Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org -ActiveDirectoryOnly
 ```
 
 ### Requirements
@@ -71,7 +86,7 @@ foreach($c in $comps) {
 ```
 
 ## Workstation and Server Datasets
-* **Local group Memberships** (note: disabled/broken)
+* **Local group Memberships**
     * Output fields: GroupName, Name, Domain, SID, PrincipalSource, ObjectClass
 * **Local user accounts**
     * Output fields: Name, SID, RID (calculated), Enabled, PasswordRequired, PasswordChangeable (calculated), PrincipalSource, Description, PasswordLastSet, LastLogon
@@ -92,8 +107,10 @@ foreach($c in $comps) {
 * **System hot fix information**
     * Output fields: HotFixID, Description, InstalledOn
 * **BitLocker information**
-    * MountPoint, EncryptionMethod, AutoUnlockEnabled, AutoUnlockKeyStored, MetadataVersion, VolumeStatus, ProtectionStatus, LockStatus, EncryptionPercentage, WipePercentage, VolumeType, CapacityGB, KeyProtector
-* **Local hard drive storage information**
+    * MountPoint, EncryptionMethod, AutoUnlockEnabled, AutoUnlockKeyStored, MetadataVersion, VolumeStatus, ProtectionStatus, LockStatus, EncryptionPercentage, WipePercentage, VolumeType, Capacity (GB), KeyProtector
+* **Physical drive information**
+    * OperationalStatus, HealthStatus, BusType, MediaType, SpindleSpeed, Manufacturer, Model, FirmwareVersion, IsPartial, LogicalSectorSize, PhysicalSectorSize, AllocatedSize (GB), Size (GB)
+* **Hard drive volume storage information**
     * Name, Root, Description, Used (GB), Free (GB), DisplayRoot 
 * **Shares**
     * Output fields: Name, Path, Description, EncryptData, CurrentUsers, ShareType
@@ -102,27 +119,26 @@ foreach($c in $comps) {
 
 ## Server Specific Datasets
 * **Windows installed features**
-    * Output fields: Name, DisplayName, Description, InstallState, Parent, Depth, Path, FeatureType
+    * Name, DisplayName, Description, InstallState, Parent, Depth, Path, FeatureType
 * **DHCP scopes**
-    * Output fields: ScopeId, SubnetMask, StartRange, EndRange, ActivatePolicies, LeaseDuration, Name, State, Type
+    * ScopeId, SubnetMask, StartRange, EndRange, ActivatePolicies, LeaseDuration, Name, State, Type
 * **DHCP leases**
-    * Output fields: IPAddress, ScopeId, AddressState, ClientId, ClientType, Description, HostName, LeaseExpiryTime, ServerIP
+    * IPAddress, ScopeId, AddressState, ClientId, ClientType, Description, HostName, LeaseExpiryTime, ServerIP
 
 ## Active Directory Datasets
 * **AD computer objects**
-    * Output fields: DistinguishedName, Enabled, IPv4Address, LastLogonDate, Name, OperatingSystem, SamAccountName
+    * DistinguishedName, Enabled, IPv4Address, LastLogonDate, Name, OperatingSystem, SamAccountName
 * **AD user objects**
-    * Output fields: AccountExpirationDate, AccountNotDelegated, AllowReversiblePasswordEncryption, CannotChangePassword, DisplayName, Name, Enabled, LastLogonDate, LockedOut, PasswordExpired, PasswordNeverExpires, PasswordNotRequired, SamAccountName, SmartcardLogonRequired
+    * AccountExpirationDate, AccountNotDelegated, AllowReversiblePasswordEncryption, CannotChangePassword, DisplayName, Name, Enabled, LastLogonDate, LockedOut, PasswordExpired, PasswordNeverExpires, PasswordNotRequired, SamAccountName, SmartcardLogonRequired
 * **AD group memberships**
-    * Output fields: UserSamAccountName, UserDN, UserName, GroupSamAccountName, GroupDN
+    * UserSamAccountName, UserDN, UserName, GroupSamAccountName, GroupDN
 
 ### TODO
 - [x] Fix local group member issues
-- [ ] Auto pull DHCP server (if possible)
 - [x] Switch to run local collection
 - [ ] Check if PS Remoting is enabled (maybe a switch)
 - [ ] Check if the local PowerShell process is running elevated
-- [ ] Rerun a datapull for failed system checks
+- [x] Rerun a datapull for failed system checks
 
 ## Appendix A - PowerShell Remoting Group Policy Walkthrough
 I’ve deployed the below group policy before and it also hasn’t worked as described.  Can’t say why but I assume there were other settings either in the domain or on the network that were blocking it and my sys/network admin skillz were too weak to sort it out.  Regardless, even if you create the policy but don’t link it to the domain’s computer objects it won’t do anything.  You can also try enforcing it too and maybe that will help override other conflicting settings, if applicable.
