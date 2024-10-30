@@ -27,6 +27,8 @@
     Only collect AD database user object and group membership information.
 .PARAMETER LocalCollectionOnly
     Collect the datasets on the local system (does not use PowerShell remoting functionality).
+.PARAMETER FailedWinRM
+    Try to collection systems that previously failed the WinRM connection attempt.
 .EXAMPLE
     .\Collect-ADDomainData.ps1
     Collects datasets for domain systems using the AD domain distinguished name of the script host.
@@ -51,10 +53,13 @@
 .EXAMPLE
 	.\Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org
     Run with the OUName parameter and the Migrated switch to specific a target OU location of interest.  You must also specify the SearchBase and Server to use for the query.
+.EXAMPLE
+	.\Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org -FailedWinRM
+    The same as the last example but only try collection for systems that previously failed their WinRM connection for PS Remoting
 .NOTES
-    Version 1.0.33
+    Version 1.0.34
     Author: Sam Pursglove
-    Last modified: 29 October 2024
+    Last modified: 30 October 2024
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -77,46 +82,65 @@
 [CmdletBinding(DefaultParameterSetName='Domain')]
 param (
     [Parameter(ParameterSetName='Domain', Mandatory=$False, Position=0, HelpMessage='Target OU name')]
-    [Parameter(ParameterSetName='ServerFeaturesOnly', Mandatory=$False, Position=0, HelpMessage='Target OU name')]
-    [Parameter(ParameterSetName='ADOnly', Mandatory=$False, Position=0, HelpMessage='Target OU name')]
     [Parameter(ParameterSetName='Migrated', Mandatory=$True, Position=0, HelpMessage='Target OU name')]
+    [Parameter(ParameterSetName='ServerFeaturesOnly', Mandatory=$False, Position=0, HelpMessage='Target OU name')]
+    [Parameter(ParameterSetName='ServerFeaturesOnlyMigrated', Mandatory=$True, Position=0, HelpMessage='Target OU name')]
+    [Parameter(ParameterSetName='ADOnly', Mandatory=$False, Position=0, HelpMessage='Target OU name')]
+    [Parameter(ParameterSetName='ADOnlyMigrated', Mandatory=$True, Position=0, HelpMessage='Target OU name')]
     [string]$OUName = '',
 
-    [Parameter(ParameterSetName='Migrated', Mandatory=$True, Position=0, HelpMessage='Switch to change the search type for AD migrated systems')]
+    [Parameter(ParameterSetName='Migrated', Mandatory=$True, HelpMessage='Switch to change the search type for AD migrated systems')]
+    [Parameter(ParameterSetName='ServerFeaturesOnlyMigrated', Mandatory=$True, HelpMessage='Switch to change the search type for AD migrated systems')]
+    [Parameter(ParameterSetName='ADOnlyMigrated', Mandatory=$True, HelpMessage='Switch to change the search type for AD migrated systems')]
     [Switch]$Migrated,
 
-    [Parameter(ParameterSetName='Migrated', Mandatory=$True, Position=0, HelpMessage='Target region name')]
+    [Parameter(ParameterSetName='Migrated', Mandatory=$True, HelpMessage='Target region name')]
+    [Parameter(ParameterSetName='ServerFeaturesOnlyMigrated', Mandatory=$True, HelpMessage='Target region name')]
+    [Parameter(ParameterSetName='ADOnlyMigrated', Mandatory=$True, HelpMessage='Target region name')]
     [string]$Region = '',
 
-    [Parameter(ParameterSetName='Migrated', Mandatory=$True, Position=0, HelpMessage='Domain controller server')]
+    [Parameter(ParameterSetName='Migrated', Mandatory=$True, HelpMessage='Domain searchbase')]
+    [Parameter(ParameterSetName='ServerFeaturesOnlyMigrated', Mandatory=$True, HelpMessage='Domain searchbase')]
+    [Parameter(ParameterSetName='ADOnlyMigrated', Mandatory=$True, HelpMessage='Domain searchbase')]
     [string]$SearchBase = '',
 
-    [Parameter(ParameterSetName='Migrated', Mandatory=$True, Position=0, HelpMessage='Domain controller server')]
+    [Parameter(ParameterSetName='Migrated', Mandatory=$True, HelpMessage='Domain controller server')]
+    [Parameter(ParameterSetName='ServerFeaturesOnlyMigrated', Mandatory=$True, HelpMessage='Domain controller server')]
+    [Parameter(ParameterSetName='ADOnlyMigrated', Mandatory=$True, HelpMessage='Domain controller server')]
     [string]$Server = '',
     
-    [Parameter(ParameterSetName='DHCPOnly', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect DHCP server scope and lease data')]
     [Parameter(ParameterSetName='Domain', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect DHCP server scope and lease data')]
+    [Parameter(ParameterSetName='Migrated', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect DHCP server scope and lease data')]
+    [Parameter(ParameterSetName='DHCPOnly', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collect DHCP server scope and lease data')]
     $DHCPServer = @(),
 
     [Parameter(ParameterSetName='Domain', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect Windows Server Feature data')]
+    [Parameter(ParameterSetName='Migrated', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect Windows Server Feature data -')]
     [Switch]$IncludeServerFeatures,
 
     [Parameter(ParameterSetName='Domain', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect AD user and group membership data')]
     [Parameter(ParameterSetName='Migrated', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect AD user and group membership data')]
     [Switch]$IncludeActiveDirectory,
 
-    [Parameter(ParameterSetName='DHCPOnly', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect DHCP server scope and lease data')]
+    [Parameter(ParameterSetName='DHCPOnly', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collect DHCP server scope and lease data')]
     [Switch]$DHCPOnly,
     
-    [Parameter(ParameterSetName='ServerFeaturesOnly', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect Windows Server Feature data')]
+    [Parameter(ParameterSetName='ServerFeaturesOnly', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collect Windows Server Feature data')]
+    [Parameter(ParameterSetName='ServerFeaturesOnlyMigrated', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collect Windows Server Feature data')]
     [Switch]$ServerFeaturesOnly,
 
-    [Parameter(ParameterSetName='ADOnly', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect AD user and group membership data')]
-    [Parameter(ParameterSetName='Migrated', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect AD user and group membership data')]
+    [Parameter(ParameterSetName='ADOnly', Mandatory=$False, ValueFromPipeline=$True, HelpMessage='Collect AD user and group membership data')]
+    [Parameter(ParameterSetName='ADOnlyMigrated', Mandatory=$False, ValueFromPipeline=$True, HelpMessage='Collect AD user and group membership data')]
     [Switch]$ActiveDirectoryOnly,
 
-    [Parameter(ParameterSetName='Local', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collects local system data, not domain systems')]
-    [Switch]$LocalCollectionOnly
+    [Parameter(ParameterSetName='Local', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collects local system data, not domain systems')]
+    [Switch]$LocalCollectionOnly,
+
+    [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Try to collection systems that previous failed the WinRM connection attempt')]
+    [Parameter(ParameterSetName='Migrated', Mandatory=$False, HelpMessage='Try to collection systems that previous failed the WinRM connection attempt')]
+    [Parameter(ParameterSetName='ServerFeaturesOnly', Mandatory=$False, HelpMessage='Try to collection systems that previous failed the WinRM connection attempt')]
+    [Parameter(ParameterSetName='ServerFeaturesOnlyMigrated', Mandatory=$False, HelpMessage='Try to collection systems that previous failed the WinRM connection attempt')]
+    [switch]$FailedWinRM
 )
 
 
@@ -304,6 +328,27 @@ function getLocalGroupMembers {
     }
 }
 
+
+# With PS remoting the numeric codes for OperationalStatus, HealthStatus, BusType, and MediaType 
+# are returned instead of their text-friendly variants.  By using Select-Object this somehow forces
+# the lookup and returns the desired results.  Wrapped the call in a function for a cleaner look.
+function getPhysicalDiskInfo {
+    
+    Get-PhysicalDisk | 
+        Select-Object OperationalStatus,
+                      HealthStatus,
+                      BusType,
+                      MediaType,
+                      SpindleSpeed,
+                      Manufacturer,
+                      Model,
+                      FirmwareVersion,
+                      IsPartial,
+                      LogicalSectorSize,
+                      PhysicalSectorSize,
+                      AllocatedSize,
+                      Size
+}
 
 
 # Determine all AD computer objects that did not connect with WinRM
@@ -574,7 +619,10 @@ function Collect-LocalSystemData {
 
 
 function Get-DomainComputerObjects {
-    Param($DN)
+    Param(
+        [string]$DN,
+        [switch]$ServersOnly
+    )
 
     if($Migrated) {
         $groupArgs = @{
@@ -583,40 +631,132 @@ function Get-DomainComputerObjects {
             Server     = $Server
         }
 
-        Get-ADGroup @groupArgs | 
-            Get-ADGroupMember |
-            ForEach-Object {
-                Get-ADComputer -Filter "name -like '$($_.name)'" -Properties IPv4Address,LastLogonDate,OperatingSystem -SearchBase "ou=workstations,$DN" -Server $Server
-            }
+        if($ServersOnly) {
+            $comps = Get-ADGroup @groupArgs | 
+                Get-ADGroupMember |
+                ForEach-Object {
+                    Get-ADComputer -Filter "name -like '$($_.name)' -and OperatingSystem -like 'Windows Server*'" -Properties IPv4Address,LastLogonDate,OperatingSystem -SearchBase "ou=workstations,$DN" -Server $Server
+                }
+        } else {
+            $comps = Get-ADGroup @groupArgs | 
+                Get-ADGroupMember |
+                ForEach-Object {
+                    Get-ADComputer -Filter "name -like '$($_.name)'" -Properties IPv4Address,LastLogonDate,OperatingSystem -SearchBase "ou=workstations,$DN" -Server $Server
+                }
+        }
 
     } else {
         # Pull all Windows computer objects listed in the Directory for the designated DN (will exclude domain joined Linux or Mac systems)
+        
+        if($ServersOnly) {
+            $filt = "OperatingSystem -like 'Windows Server*'"
+        } else {
+            $filt = "*"
+        }
+            
         $computersArgs = @{
-            Filter     = "*"
+            Filter     = $filt
             Properties = 'IPv4Address','LastLogonDate','OperatingSystem'
             SearchBase = $DN
         }
 
-        Get-ADComputer @computersArgs
+        # return the computer objects
+        $comps = Get-ADComputer @computersArgs
     }
+
+    $comps
+}
+
+
+function Try-FailedWinRM {
+    Param(
+        [string]$DN,
+        [switch]$ServersOnly
+    )
+
+    if(Test-Path .\failed_collection.csv) {
+        $failed = Import-Csv .\failed_collection.csv
+    } else {
+        Write-Output 'File not found: failed_collection.csv is not in the current working directory.'
+        exit
+    }
+    
+    # get the list of systems that failed to connect via WinRM for either the general system datasets or the server specific collection
+    if($ServersOnly) {
+        $failedWinRMComps = $failed | Where-Object {$_.Failure -eq 'WinRMServer'} | Sort-Object Name -Unique
+    } else {
+        $failedWinRMComps = $failed | Where-Object {$_.Failure -eq 'WinRM'} | Sort-Object Name -Unique
+    }
+
+    # get the AD computer objects for the systems that failed to connect via WinRM
+    if($Migrated) {
+        $comps = $failedWinRMComps | 
+            ForEach-Object {
+                Get-ADComputer -Filter "Name -like '$($_.Name)'" -Properties IPv4Address,LastLogonDate,OperatingSystem -SearchBase "ou=workstations,$DN" -Server $Server
+            }
+    } else {
+        $comps = $failedWinRMComps |
+            ForEach-Object {
+                Get-ADComputer -Filter "Name -like '$($_.Name)'" -Properties IPv4Address,LastLogonDate,OperatingSystem -SearchBase $DN
+            }
+    }
+
+    # update the failed_collection.csv log file to reflect the attempted reconnection (with a 'r_' prefix), the new
+    # WinRM connection attempt will update the log records for any connections that fail again
+    if($ServersOnly) {
+        $failed | 
+            ForEach-Object {
+                if($_.Failure -eq 'WinRMServer') {
+                    [pscustomobject]@{
+                        Name=   $_.Name
+                        Failure='r_WinRMServer'
+                    }
+                } else {
+                    $_
+                }
+            } |
+            Export-Csv -Path .\failed_collection.csv -NoTypeInformation
+    } else {
+        $failed | 
+            ForEach-Object {
+                if($_.Failure -eq 'WinRM') {
+                    [pscustomobject]@{
+                        Name=   $_.Name
+                        Failure='r_WinRM'
+                    }
+                } else {
+                    $_
+                }
+            } |
+            Export-Csv -Path .\failed_collection.csv -NoTypeInformation
+    }
+
+    # return the computer objects
+    $comps
 }
 
 
 function Collect-RemoteSystemData {
     Param($DN)
     
-    Write-Output "Active Directory: Getting domain computer objects."
-    $computers = Get-DomainComputerObjects $DN
-    
-    # Export domain computer account info    
-    $computers | Export-Csv -Path domain_computers.csv -Append -NoTypeInformation
+    # Collect domain computer objects or retry systems that previously failed WinRM connection attempts
+    if($FailedWinRM) {
+        Write-Output "Active Directory: Getting previously failed PSRemoting domain computer objects."
+        $computers = Try-FailedWinRM $DN
+    } else {
+        Write-Output "Active Directory: Getting domain computer objects."
+        $computers = Get-DomainComputerObjects $DN
+
+        # Only export domain computer account info on the first collection
+        $computers | Export-Csv -Path domain_computers.csv -Append -NoTypeInformation
+    }    
 
     # Create PS sessions for Windows only systems
     $computers = $computers | Where-Object {$_.OperatingSystem -like "Windows*"}
-    $sessionOpt = New-PSSessionOption -NoMachineProfile # Minimize your presence and don't create a user profile on every system (e.g., C:\Users\<username>)
-
+    
     # Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
     Write-Output "Remoting: Creating PowerShell sessions."
+    $sessionOpt = New-PSSessionOption -NoMachineProfile # Minimize your presence and don't create a user profile on every system (e.g., C:\Users\<username>)
     New-PSSession -ComputerName $computers.Name -SessionOption $sessionOpt -ErrorAction SilentlyContinue | Out-Null # Create reusable PS Sessions
 
     # Determine the systems where PS remoting failed
@@ -832,6 +972,8 @@ function Collect-RemoteSystemData {
     
     # BitLocker information
     Write-Output "Remoting: Getting BitLocker information."
+    Get-BrokenPSSessions 'BitLocker'
+
     Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-BitLockerVolume} |
         Select-Object PSComputerName,
                       MountPoint,
@@ -840,7 +982,7 @@ function Collect-RemoteSystemData {
                       AutoUnlockKeyStored,
                       MetadataVersion,
                       VolumeStatus,
-                      rotectionStatus,
+                      ProtectionStatus,
                       LockStatus,
                       EncryptionPercentage,
                       WipePercentage,
@@ -852,7 +994,9 @@ function Collect-RemoteSystemData {
 
     # Physical disk information
     Write-Output "Remoting: Getting physical disk information."
-    Invoke-Command -Session (Get-PSSession) -ScriptBlock {Get-PhysicalDisk} |
+    Get-BrokenPSSessions 'PhysicalDisk'
+        
+    Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getPhysicalDiskInfo} |
         Select-Object PSComputerName,
                       OperationalStatus,
                       HealthStatus,
@@ -919,8 +1063,14 @@ function Collect-RemoteSystemData {
 function Collect-ServerFeatures {
     Param($DN)
 
-    Write-Output "Active Directory: Getting server OS domain computer objects."
-    $winServers = Get-DomainComputerObjects $DN | Where-Object {$_.OperatingSystem -like 'Windows Server*'}
+    # Collect server domain computer objects or retry systems that previously failed WinRM connection attempts
+    if($FailedWinRM) {
+        Write-Output "Active Directory: Getting previously failed PSRemoting domain computer objects."
+        $winServers = Try-FailedWinRM $DN -ServersOnly
+    } else {
+        Write-Output "Active Directory: Getting server OS domain computer objects."
+        $winServers = Get-DomainComputerObjects $DN -ServersOnly
+    }
     
     # Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
     Write-Output "Remoting: Creating PowerShell server sessions."
@@ -996,7 +1146,7 @@ function Collect-ActiveDirectoryDatasets {
 
     $adUsers | Export-Csv -Path domain_users.csv -Append -NoTypeInformation
        
-    # Get all OU groups and their members
+    # Get all OU groups and their members (does not work recursively)
     if($Migrated) {
         Write-Output "Active Directory: Getting domain group memberships."
         $groups = Get-ADGroup -Filter * -Properties Members,msExchExtensionCustomAttribute1 -SearchBase $('OU=' + $OUName + ',' + (Get-ADDomain).DistinguishedName)
@@ -1006,7 +1156,11 @@ function Collect-ActiveDirectoryDatasets {
 
             # if a group is empty document it
             if($members.Count -eq 0) {
-                Write-Output "$($group.Name): $($group.DistinguishedName)" | Out-File EmptyGroups.txt -Append
+                [pscustomobject]@{
+                    Name=             $($group.Name)
+                    DistinguishedName=$($group.DistinguishedName)
+                 } | 
+                 Export-Csv ad_empty_groups.txt -Append -NoTypeInformation
             }
 
             Write-Output "In group: $($group)"
