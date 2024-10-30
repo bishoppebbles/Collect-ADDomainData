@@ -52,12 +52,21 @@
     Collects the datasets for the local system on the script host.
 .EXAMPLE
 	.\Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org
-    Run with the OUName parameter and the Migrated switch to specific a target OU location of interest.  You must also specify the SearchBase and Server to use for the query.
+    Run with the OUName parameter and the Migrated switch to target a specific OU location of interest.  You must also specify the Region, SearchBase, and Server paramters for any query with the Migrated switch.
 .EXAMPLE
 	.\Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org -FailedWinRM
     The same as the last example but only try collection for systems that previously failed their WinRM connection for PS Remoting
+.EXAMPLE
+    .\Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org -DHCPServer dhcpsvr01 -IncludeServerFeatures -IncludeActiveDirectory
+    Run collection for all applicable datasets using the Migrated switch.
+.EXAMPLE
+    .\Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org -FailedWinRM -ServerFeaturesOnly
+    Run collection with the Migrated switch and only pull server specific collection (ServerFeaturesOnly) that previously failed (FailedWinRM).
+.EXAMPLE
+    Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org -ActiveDirectoryOnly
+    Run Active Directory only collection with the Migrated switch.
 .NOTES
-    Version 1.0.34
+    Version 1.0.35
     Author: Sam Pursglove
     Last modified: 30 October 2024
 
@@ -589,7 +598,7 @@ function Collect-LocalSystemData {
         Export-Csv -Path physical_disk.csv -Append -NoTypeInformation
 
 
-    # Local hard drive storage information
+    # Hard drive volume storage information
     Write-Output "Local: Getting hard drive storage information."
     Get-PSDrive -PSProvider FileSystem | 
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
@@ -1014,7 +1023,7 @@ function Collect-RemoteSystemData {
         Export-Csv -Path physical_disk.csv -Append -NoTypeInformation
 
 
-    # Hard drive storage information
+    # Hard drive volume storage information
     Write-Output "Remoting: Getting hard drive storage information."
     Get-BrokenPSSessions 'HardDriveInformation'
 
@@ -1160,7 +1169,7 @@ function Collect-ActiveDirectoryDatasets {
                     Name=             $($group.Name)
                     DistinguishedName=$($group.DistinguishedName)
                  } | 
-                 Export-Csv ad_empty_groups.txt -Append -NoTypeInformation
+                 Export-Csv ad_empty_groups.csv -Append -NoTypeInformation
             }
 
             Write-Output "In group: $($group)"
