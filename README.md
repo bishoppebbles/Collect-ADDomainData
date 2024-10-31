@@ -135,6 +135,8 @@ foreach($c in $comps) {
     * AccountExpirationDate, AccountNotDelegated, AllowReversiblePasswordEncryption, CannotChangePassword, DisplayName, Name, Enabled, LastLogonDate, LockedOut, PasswordExpired, PasswordNeverExpires, PasswordNotRequired, SamAccountName, SmartcardLogonRequired
 * **AD group memberships**
     * UserSamAccountName, UserDN, UserName, GroupSamAccountName, GroupDN
+* **Empty AD groups**
+    * Name, distinguished name
 
 ### TODO
 - [x] Fix local group member issues
