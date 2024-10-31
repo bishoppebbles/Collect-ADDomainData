@@ -72,7 +72,7 @@
     Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org -ActiveDirectoryOnly
     Run Active Directory only collection with the Migrated switch.
 .NOTES
-    Version 1.0.38
+    Version 1.0.39
     Author: Sam Pursglove
     Last modified: 31 October 2024
 
@@ -1111,6 +1111,8 @@ function Collect-ServerFeatures {
     
     # server features local collection
     } else {
+
+        Write-Output "Local server: Getting installed features."
         Get-WindowsFeature | 
             Where-Object {$_.InstallState -eq 'Installed'} | 
             Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,DisplayName,Description,InstallState,Parent,Depth,Path,FeatureType | 
