@@ -54,6 +54,9 @@
     .\Collect-ADDomainData.ps1 -LocalCollectionOnly
     Collects the datasets for the local system on the script host.
 .EXAMPLE
+    .\Collect-ADDomainData.ps1 -LocalCollectionOnly -IncludeServerFeatures
+    Collects the datasets for the local system on the script host and also gets the installed server features.
+.EXAMPLE
 	.\Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org
     Run with the OUName parameter and the Migrated switch to target a specific OU location of interest.  You must also specify the Region, SearchBase, and Server paramters for any query with the Migrated switch.
 .EXAMPLE
@@ -69,7 +72,7 @@
     Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org -ActiveDirectoryOnly
     Run Active Directory only collection with the Migrated switch.
 .NOTES
-    Version 1.0.37
+    Version 1.0.38
     Author: Sam Pursglove
     Last modified: 31 October 2024
 
@@ -120,6 +123,10 @@ param (
     [Parameter(ParameterSetName='ServerFeaturesOnlyMigrated', Mandatory=$True, HelpMessage='Domain controller server')]
     [Parameter(ParameterSetName='ADOnlyMigrated', Mandatory=$True, HelpMessage='Domain controller server')]
     [string]$Server = '',
+
+    [Parameter(ParameterSetName='Local', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collects local system data, not domain systems')]
+    [Parameter(ParameterSetName='LocalServerFeature', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collects local server features only')]
+    [Switch]$LocalCollectionOnly,
     
     [Parameter(ParameterSetName='Domain', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect DHCP server scope and lease data')]
     [Parameter(ParameterSetName='Migrated', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect DHCP server scope and lease data')]
@@ -140,14 +147,12 @@ param (
     
     [Parameter(ParameterSetName='ServerFeaturesOnly', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collect Windows Server Feature data')]
     [Parameter(ParameterSetName='ServerFeaturesOnlyMigrated', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collect Windows Server Feature data')]
+    [Parameter(ParameterSetName='LocalServerFeature', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collect Windows Server Feature data')]
     [Switch]$ServerFeaturesOnly,
 
     [Parameter(ParameterSetName='ADOnly', Mandatory=$False, ValueFromPipeline=$True, HelpMessage='Collect AD user and group membership data')]
     [Parameter(ParameterSetName='ADOnlyMigrated', Mandatory=$False, ValueFromPipeline=$True, HelpMessage='Collect AD user and group membership data')]
     [Switch]$ActiveDirectoryOnly,
-
-    [Parameter(ParameterSetName='Local', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collects local system data, not domain systems')]
-    [Switch]$LocalCollectionOnly,
 
     [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Try to collection systems that previous failed the WinRM connection attempt')]
     [Parameter(ParameterSetName='Migrated', Mandatory=$False, HelpMessage='Try to collection systems that previous failed the WinRM connection attempt')]
@@ -1311,10 +1316,16 @@ if (-not $LocalCollectionOnly) {
 
 } else {
     # Perform local system collection
-    Collect-LocalSystemData
 
-    ### Server features ###
-    if ($IncludeServerFeatures) {
+    if ($ServerFeaturesOnly) {
         Collect-ServerFeatures
-    }  
+    } else {
+
+        Collect-LocalSystemData
+
+        ### Server features ###
+        if ($IncludeServerFeatures) {
+            Collect-ServerFeatures
+        }
+    }
 }
