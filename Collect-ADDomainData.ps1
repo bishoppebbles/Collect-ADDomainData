@@ -69,9 +69,9 @@
     Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org -ActiveDirectoryOnly
     Run Active Directory only collection with the Migrated switch.
 .NOTES
-    Version 1.0.36
+    Version 1.0.37
     Author: Sam Pursglove
-    Last modified: 30 October 2024
+    Last modified: 31 October 2024
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -127,7 +127,8 @@ param (
     $DHCPServer = @(),
 
     [Parameter(ParameterSetName='Domain', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect Windows Server Feature data')]
-    [Parameter(ParameterSetName='Migrated', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect Windows Server Feature data -')]
+    [Parameter(ParameterSetName='Migrated', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect Windows Server Feature data')]
+    [Parameter(ParameterSetName='Local', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect Windows Server Feature data')]
     [Switch]$IncludeServerFeatures,
 
     [Parameter(ParameterSetName='Domain', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect AD user and group membership data')]
@@ -1075,32 +1076,41 @@ function Collect-RemoteSystemData {
 function Collect-ServerFeatures {
     Param($DN)
 
-    # Collect server domain computer objects or retry systems that previously failed WinRM connection attempts
-    if($FailedWinRM) {
-        Write-Output "Active Directory: Getting previously failed PSRemoting domain computer objects."
-        $winServers = Try-FailedWinRM $DN -ServersOnly
-    } else {
-        Write-Output "Active Directory: Getting server OS domain computer objects."
-        $winServers = Get-DomainComputerObjects $DN -ServersOnly
-    }
+    if (-not $LocalCollectionOnly) {
+        # Collect server domain computer objects or retry systems that previously failed WinRM connection attempts
+        if($FailedWinRM) {
+            Write-Output "Active Directory: Getting previously failed PSRemoting domain computer objects."
+            $winServers = Try-FailedWinRM $DN -ServersOnly
+        } else {
+            Write-Output "Active Directory: Getting server OS domain computer objects."
+            $winServers = Get-DomainComputerObjects $DN -ServersOnly
+        }
     
-    # Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
-    Write-Output "Remoting: Creating PowerShell server sessions."
-    $sessionOpt = New-PSSessionOption -NoMachineProfile # Minimize your presence and don't create a user profile on every system (e.g., C:\Users\<username>)
-    $serverSessions = New-PSSession -ComputerName $winServers.Name -SessionOption $sessionOpt -ErrorAction SilentlyContinue # Create reusable PS Sessions
+        # Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
+        Write-Output "Remoting: Creating PowerShell server sessions."
+        $sessionOpt = New-PSSessionOption -NoMachineProfile # Minimize your presence and don't create a user profile on every system (e.g., C:\Users\<username>)
+        $serverSessions = New-PSSession -ComputerName $winServers.Name -SessionOption $sessionOpt -ErrorAction SilentlyContinue # Create reusable PS Sessions
 
-    # Determine the systems where PS remoting failed
-    Get-FailedWinRMSessions $winServers | 
-        Select-Object Name,@{Name='Failure'; Expression={'WinRMServer'}} |
-        Export-Csv -Path failed_collection.csv -Append -NoTypeInformation
+        # Determine the systems where PS remoting failed
+        Get-FailedWinRMSessions $winServers | 
+            Select-Object Name,@{Name='Failure'; Expression={'WinRMServer'}} |
+            Export-Csv -Path failed_collection.csv -Append -NoTypeInformation
 
-    # Windows Server installed features
-    Write-Output "Server: Getting installed features."
-    Invoke-Command -Session $serverSessions -ScriptBlock {Get-WindowsFeature | Where-Object {$_.InstallState -eq 'Installed'} | Select-Object Name,DisplayName,Description,InstallState,Parent,Depth,Path,FeatureType} | 
-        Select-Object PSComputerName,Name,DisplayName,Description,InstallState,Parent,Depth,Path,FeatureType |
-	    Export-Csv -Path windows_server_features.csv -Append -NoTypeInformation
+        # Windows Server installed features
+        Write-Output "Server: Getting installed features."
+        Invoke-Command -Session $serverSessions -ScriptBlock {Get-WindowsFeature | Where-Object {$_.InstallState -eq 'Installed'} | Select-Object Name,DisplayName,Description,InstallState,Parent,Depth,Path,FeatureType} | 
+            Select-Object PSComputerName,Name,DisplayName,Description,InstallState,Parent,Depth,Path,FeatureType |
+	        Export-Csv -Path windows_server_features.csv -Append -NoTypeInformation
 
-    Get-PSSession | Remove-PSSession
+        Get-PSSession | Remove-PSSession
+    
+    # server features local collection
+    } else {
+        Get-WindowsFeature | 
+            Where-Object {$_.InstallState -eq 'Installed'} | 
+            Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,DisplayName,Description,InstallState,Parent,Depth,Path,FeatureType | 
+	        Export-Csv -Path windows_server_features.csv -Append -NoTypeInformation
+    }
 }
 
 
@@ -1302,4 +1312,9 @@ if (-not $LocalCollectionOnly) {
 } else {
     # Perform local system collection
     Collect-LocalSystemData
+
+    ### Server features ###
+    if ($IncludeServerFeatures) {
+        Collect-ServerFeatures
+    }  
 }
