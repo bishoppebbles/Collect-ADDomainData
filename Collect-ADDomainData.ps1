@@ -13,6 +13,8 @@
     The top level distinguished name path to use for computer object searching.
 .PARAMETER Server
     The server to use for the target domain.
+.PARAMETER PSRemotingLimit
+    Limit the number of active PowerShell Remoting sessions.
 .PARAMETER DHCPServer
     Specify the server name if collecting Windows DHCP server scope and lease information with other domain data.
 .PARAMETER IncludeServerFeatures
@@ -33,7 +35,7 @@
     .\Collect-ADDomainData.ps1
     Collects datasets for domain systems using the AD domain distinguished name of the script host.
 .EXAMPLE
-    .\Collect-ADDomainData.ps1 -DHCPServer dhcpsvr01 -IncludeServerFeatures -IncludeActiveDirectory
+    .\Collect-ADDomainData.ps1 -PSRemotingLimit 512 -DHCPServer dhcpsvr01 -IncludeServerFeatures -IncludeActiveDirectory
     Collects all datasets for domain systems using the AD domain distinguished name of the script host system.  This includes server specific features plus Active Directory and DHCP data.
 .EXAMPLE
     .\Collect-ADDomainData.ps1 -OUName 'Finance'
@@ -57,7 +59,7 @@
     .\Collect-ADDomainData.ps1 -LocalCollectionOnly -IncludeServerFeatures
     Collects the datasets for the local system on the script host and also gets the installed server features.
 .EXAMPLE
-	.\Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org
+	.\Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org -PSRemotingLimit 256
     Run with the OUName parameter and the Migrated switch to target a specific OU location of interest.  You must also specify the Region, SearchBase, and Server paramters for any query with the Migrated switch.
 .EXAMPLE
 	.\Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org -FailedWinRM
@@ -72,9 +74,9 @@
     Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org -ActiveDirectoryOnly
     Run Active Directory only collection with the Migrated switch.
 .NOTES
-    Version 1.0.39
+    Version 1.0.40
     Author: Sam Pursglove
-    Last modified: 31 October 2024
+    Last modified: 27 January 2025
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -96,12 +98,12 @@
 
 [CmdletBinding(DefaultParameterSetName='Domain')]
 param (
-    [Parameter(ParameterSetName='Domain', Mandatory=$False, Position=0, HelpMessage='Target OU name')]
-    [Parameter(ParameterSetName='Migrated', Mandatory=$True, Position=0, HelpMessage='Target OU name')]
-    [Parameter(ParameterSetName='ServerFeaturesOnly', Mandatory=$False, Position=0, HelpMessage='Target OU name')]
-    [Parameter(ParameterSetName='ServerFeaturesOnlyMigrated', Mandatory=$True, Position=0, HelpMessage='Target OU name')]
-    [Parameter(ParameterSetName='ADOnly', Mandatory=$False, Position=0, HelpMessage='Target OU name')]
-    [Parameter(ParameterSetName='ADOnlyMigrated', Mandatory=$True, Position=0, HelpMessage='Target OU name')]
+    [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Target OU name')]
+    [Parameter(ParameterSetName='Migrated', Mandatory=$True, HelpMessage='Target OU name')]
+    [Parameter(ParameterSetName='ServerFeaturesOnly', Mandatory=$False, HelpMessage='Target OU name')]
+    [Parameter(ParameterSetName='ServerFeaturesOnlyMigrated', Mandatory=$True, HelpMessage='Target OU name')]
+    [Parameter(ParameterSetName='ADOnly', Mandatory=$False, HelpMessage='Target OU name')]
+    [Parameter(ParameterSetName='ADOnlyMigrated', Mandatory=$True, HelpMessage='Target OU name')]
     [string]$OUName = '',
 
     [Parameter(ParameterSetName='Migrated', Mandatory=$True, HelpMessage='Switch to change the search type for AD migrated systems')]
@@ -123,6 +125,10 @@ param (
     [Parameter(ParameterSetName='ServerFeaturesOnlyMigrated', Mandatory=$True, HelpMessage='Domain controller server')]
     [Parameter(ParameterSetName='ADOnlyMigrated', Mandatory=$True, HelpMessage='Domain controller server')]
     [string]$Server = '',
+
+    [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Limit the number of active PowerShell Remoting sessions.')]
+    [Parameter(ParameterSetName='Migrated', Mandatory=$False, HelpMessage='Limit the number of active PowerShell Remoting sessions.')]
+    [int]$PSRemotingLimit = 0,
 
     [Parameter(ParameterSetName='Local', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collects local system data, not domain systems')]
     [Parameter(ParameterSetName='LocalServerFeature', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collects local server features only')]
@@ -150,8 +156,8 @@ param (
     [Parameter(ParameterSetName='LocalServerFeature', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collect Windows Server Feature data')]
     [Switch]$ServerFeaturesOnly,
 
-    [Parameter(ParameterSetName='ADOnly', Mandatory=$False, ValueFromPipeline=$True, HelpMessage='Collect AD user and group membership data')]
-    [Parameter(ParameterSetName='ADOnlyMigrated', Mandatory=$False, ValueFromPipeline=$True, HelpMessage='Collect AD user and group membership data')]
+    [Parameter(ParameterSetName='ADOnly', Mandatory=$True, ValueFromPipeline=$True, HelpMessage='Collect AD user and group membership data')]
+    [Parameter(ParameterSetName='ADOnlyMigrated', Mandatory=$True, ValueFromPipeline=$True, HelpMessage='Collect AD user and group membership data')]
     [Switch]$ActiveDirectoryOnly,
 
     [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Try to collection systems that previous failed the WinRM connection attempt')]
@@ -369,7 +375,7 @@ function getPhysicalDiskInfo {
 }
 
 
-# Determine all AD computer objects that did not connect with WinRM
+# Determine AD computer objects that did not connect with WinRM
 function Get-FailedWinRMSessions {
     param(
         $comps
@@ -377,7 +383,7 @@ function Get-FailedWinRMSessions {
     
     $compSessions = @{}
     
-    $comps.Name | 
+    $comps | 
         ForEach-Object {$compSessions.Add($_, $false)}
     
     (Get-PSSession).ComputerName | 
@@ -771,310 +777,337 @@ function Collect-RemoteSystemData {
 
     # Create PS sessions for Windows only systems
     $computers = $computers | Where-Object {$_.OperatingSystem -like "Windows*"}
-    
-    # Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
-    Write-Output "Remoting: Creating PowerShell sessions."
     $sessionOpt = New-PSSessionOption -NoMachineProfile # Minimize your presence and don't create a user profile on every system (e.g., C:\Users\<username>)
-    New-PSSession -ComputerName $computers.Name -SessionOption $sessionOpt -ErrorAction SilentlyContinue | Out-Null # Create reusable PS Sessions
-
-    # Determine the systems where PS remoting failed
-    Get-FailedWinRMSessions $computers | 
-        Select-Object Name,@{Name='Failure'; Expression={'WinRM'}} |
-        Export-Csv -Path failed_collection.csv -Append -NoTypeInformation
 
 
-    ### Removing data pull ###
-    # Local group memberships
-    Write-Output "Remoting: Getting local group memberships."
-    Get-BrokenPSSessions 'LocalGroupMembers'
-
-    Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getLocalGroupMembers} |
-        Select-Object PSComputerName,
-                      @{Name='GroupName'; Expression={$_.GroupName}},
-                      @{Name='Name'; Expression={$_.Name}},
-                      @{Name='Domain'; Expression={$_.Domain}},
-                      @{Name='SID'; Expression={$_.SID}},
-                      @{Name='RID'; Expression={$_.RID}},
-                      @{Name='PrincipalSource'; Expression={$_.PrincipalSource}},
-                      @{Name='ObjectClass'; Expression={$_.ObjectClass}} |
-        Export-Csv -Path local_groups.csv -Append -NoTypeInformation
-
-
-    # Local user accounts
-    Write-Output "Remoting: Getting local user accounts."
-    Get-BrokenPSSessions 'LocalUsers'
-
-    Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getLocalUsers} |
-        Select-Object PSComputerName,
-					  Name,
-	   				  SID,
-		  			  RID,
-		 			  Enabled,
-					  PasswordRequired,
-	   				  PasswordChangeable,
-		  			  PrincipalSource,
-		 			  Description,
-					  PasswordLastSet,
-	   				  @{Name='PasswordLastSetDays'; Expression={if($_.PasswordLastSetDays -ne '') {[math]::Round($_.PasswordLastSetDays, 0)}}},
-		  			  LastLogon |
-	    Export-Csv -Path local_users.csv -Append -NoTypeInformation
-
-
-    # Processes
-    Write-Output "Remoting: Getting processes."
-    Get-BrokenPSSessions 'Process'
-
-    Invoke-Command -Session (Get-OpenPSSessions) `
-                   -ScriptBlock {
-                        Get-Process -IncludeUserName | 
-                        Select-Object Name,
-                                      Id,
-                                      Path,
-                                      @{Name='Hash'; Expression={if($_.Path -notlike '') {(Get-FileHash $_.Path -ErrorAction SilentlyContinue).Hash}}},
-                                      UserName,
-                                      Company,
-                                      Description,
-                                      ProductVersion,
-                                      StartTime
-                   } |
-        Select-Object PSComputerName,Name,Id,Path,Hash,UserName,Company,Description,ProductVersion,StartTime |
-	    Export-Csv -Path processes.csv -Append -NoTypeInformation
-
-
-    # Scheduled tasks
-    Write-Output "Remoting: Getting scheduled tasks."
-    Get-BrokenPSSessions 'ScheduledTask'
-
-    Invoke-Command -Session (Get-OpenPSSessions) `
-                   -ScriptBlock {
-                        $guidRegex = "([a-zA-Z0-9_. ]+)-?\{([0-9A-F]+-?){5}\}"
-                        $sidRegex  = "([a-zA-Z0-9_. ]+)((_|-)S-1-5-21)((-\d+){4})"
-                        Get-ScheduledTask | 
-                        Select-Object @{Name='TaskName'; Expression={if( $_.TaskName -match $guidRegex ) { $Matches[1] } elseif ($_.TaskName -match $sidRegex ) { $Matches[1] } else {$_.TaskName}}},
-                                        State,
-                                        Author,
-                                        TaskPath,
-                                        Description
-                    } |
-        Select-Object PSComputerName,TaskName,State,Author,TaskPath,Description |
-	    Export-Csv -Path scheduled_tasks.csv -Append -NoTypeInformation
-
-
-    # Services
-    Write-Output "Remoting: Getting services."
-    Get-BrokenPSSessions 'Services'
-
-    Invoke-Command -Session (Get-OpenPSSessions) `
-                   -ScriptBlock {
-                        Get-Service | 
-                        Select-Object @{Name='Name'; Expression={$_.Name.Split('_')[0]}}, # remove unique service name suffix
-                                      @{Name='DisplayName'; Expression={$_.DisplayName.Split('_')[0]}}, # remove unique service display name suffix
-                                      Status,
-                                      StartType,
-                                      ServiceType
-                   } |
-        Select-Object PSComputerName,Name,DisplayName,Status,StartType,ServiceType |
-        Export-Csv -Path services.csv -Append -NoTypeInformation
-
-
-    # Network connections
-    Write-Output "Remoting: Getting network connections."
-    Get-BrokenPSSessions 'Network'
-
-    Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:netConnects} |
-        Select-Object PSComputerName,Date,Time,LocalAddress,LocalPort,RemoteAddress,RemotePort,State,OwningProcess,ProcessName |
-        Export-Csv -Path net.csv -Append -NoTypeInformation
-
-
-    # Downloads, Documents, and Desktop files
-    Write-Output "Remoting: Getting Documents, Desktop, and Downloads file information."
-    Get-BrokenPSSessions 'Files'
-
-    Invoke-Command -Session (Get-OpenPSSessions) `
-                   -ScriptBlock {
-                        Get-ChildItem -Path 'C:\Users\*\Downloads\','C:\Users\*\Documents\','C:\Users\*\Desktop\' -Recurse | 
-                        Select-Object Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes
-                   } |
-	    Select-Object PSComputerName,Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes |
-        Export-Csv -Path files.csv -Append -NoTypeInformation
-
-
-    # 64 bit programs
-    Write-Output "Remoting: Getting 64-bit programs."
-    Get-BrokenPSSessions 'Programs64'
-
-    Invoke-Command -Session (Get-OpenPSSessions) `
-                   -ScriptBlock {
-                        Get-ChildItem -Path 'C:\Program Files' | 
-                        Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'64-bit'}}
-                   } |
-	    Select-Object PSComputerName,Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,ProgramType |
-        Export-Csv -Path programs.csv -Append -NoTypeInformation
-
-
-    # 32 bit programs
-    Write-Output "Remoting: Getting 32-bit programs."
-    Get-BrokenPSSessions 'Programs32'
-
-    Invoke-Command -Session (Get-OpenPSSessions) `
-                   -ScriptBlock {
-                        Get-ChildItem -Path 'C:\Program Files (x86)' | 
-                        Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'32-bit'}}
-                   } |
-	    Select-Object PSComputerName,Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,ProgramType |
-        Export-Csv -Path programs.csv -Append -NoTypeInformation
-
-
-    # System information
-    Write-Output "Remoting: Getting system information."
-    Get-BrokenPSSessions 'SystemInformation'
-
-    Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-ComputerInfo} |
-        Select-Object PSComputerName,
-                      WindowsCurrentVersion,
-                      WindowsEditionId,
-                      WindowsVersion,
-                      BiosManufacturer,
-                      BiosSMBIOSBIOSVersion,
-                      BiosFirmwareType,
-                      BiosReleaseDate,
-                      BiosSeralNumber,
-                      BiosCurrentLanguage,
-                      CsDomain,
-                      CsDomainRole,
-                      CsManufacturer,
-                      CsModel,
-                      @{name='CsProcessors'; expression={$_.CsProcessors.Name}},
-                      CsNumberOfProcessors,
-                      @{name='CsNumberOfCores'; expression={$_.CsProcessors.NumberOfCores}},
-                      CsNumberofLogicalProcessors,
-                      CsPartOfDomain,
-                      @{name='CsTotalPhysicalMemory (GB)'; expression={[math]::Round($_.CsTotalPhysicalMemory/1GB, 1)}},
-                      @{name='CsMaxClockSpeed'; expression={$_.CsProcessors.MaxClockSpeed}},
-                      OsName,
-                      OsType,
-                      OsVersion,
-                      OsBuildNumber,
-                      OsLocale,
-                      OsManufacturer,
-                      OsArchitecture,
-                      OsLanguage,
-                      KeyboardLayout,
-                      TimeZone,
-                      LogonServer,
-                      PowerPlatformRole |
-        Export-Csv -Path system_info.csv -Append -NoTypeInformation
-
-
-    # System hot fix information
-    Write-Output "Remoting: Getting system hot fix information."
-    Get-BrokenPSSessions 'SystemHotFix'
+    # Logic to run only $compInc number of (e.g. 256) PowerShell remoting sessions at a time
+    # A large number of PSRemoting sessions seem to sometimes cause problems or not work well
+    $compsMax = $computers.Count
     
-    Invoke-Command -Session (Get-OpenPSSessions) `
-                   -ScriptBlock {
-                        (Get-ComputerInfo).OsHotFixes | 
-                            ForEach-Object {
-                              @{
-                                    HotFixID    = $_.HotFixID
-                                    Description = $_.Description
-                                    InstalledOn = $_.InstalledOn
-                                }
-                             }
-                   } | 
-        Select-Object PSComputerName,
-                      @{Name='HotFixID'; Expression={$_.HotFixID}},
-                      @{Name='Description'; Expression={$_.Description}},
-                      @{Name='InstalledOn'; Expression={$_.InstalledOn}} | 
-        Export-Csv -Path hotfixes.csv -Append -NoTypeInformation
-
+    if($PSRemotingLimit -gt 0) {
+        $compsInc = $PSRemotingLimit
+    } else {
+        $compsInc = $computers.Count
+    }    
     
-    # BitLocker information
-    Write-Output "Remoting: Getting BitLocker information."
-    Get-BrokenPSSessions 'BitLocker'
-
-    Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-BitLockerVolume} |
-        Select-Object PSComputerName,
-                      MountPoint,
-                      EncryptionMethod,
-                      AutoUnlockEnabled,
-                      AutoUnlockKeyStored,
-                      MetadataVersion,
-                      VolumeStatus,
-                      ProtectionStatus,
-                      LockStatus,
-                      EncryptionPercentage,
-                      WipePercentage,
-                      VolumeType,
-                      @{name='CapacityGB'; expression={[math]::Round($_.CapacityGB, 1)}},
-                      @{Name='KeyProtector'; Expression={$_.KeyProtector -join '|'}} |
-        Export-Csv -Path bitlocker.csv -Append -NoTypeInformation
-
-
-    # Physical disk information
-    Write-Output "Remoting: Getting physical disk information."
-    Get-BrokenPSSessions 'PhysicalDisk'
+    $compsLow = 0
+    $compsHigh = $compsInc - 1
+    
+    while($compsMax -gt 0) {
         
-    Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getPhysicalDiskInfo} |
-        Select-Object PSComputerName,
-                      OperationalStatus,
-                      HealthStatus,
-                      BusType,
-                      MediaType,
-                      SpindleSpeed,
-                      Manufacturer,
-                      Model,
-                      FirmwareVersion,
-                      IsPartial,
-                      LogicalSectorSize,
-                      PhysicalSectorSize,
-                      @{name='AllocatedSizeGB'; expression={[math]::Round($_.AllocatedSize/1GB, 1)}},
-                      @{name='SizeGB'; expression={[math]::Round($_.Size/1GB, 1)}} |
-        Export-Csv -Path physical_disk.csv -Append -NoTypeInformation
+        if($compsMax -lt $compsInc) {
+            $compsHigh = $compsLow + $compsMax - 1
+            $compsMax = 0
+        } else {
+            $compsMax -= $compsInc
+        }
+
+        # Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
+        Write-Output "Remoting: Creating PowerShell sessions (Systems: $($compsLow + 1) - $($compsHigh + 1) of $($computers.Count))."
+        New-PSSession -ComputerName $computers[$compsLow..$compsHigh].Name -SessionOption $sessionOpt -ErrorAction SilentlyContinue | Out-Null # Create reusable PS Sessions
+
+        # Determine the systems where PS remoting failed
+        Get-FailedWinRMSessions $computers[$compsLow..$compsHigh].Name | 
+            Select-Object Name,@{Name='Failure'; Expression={'WinRM'}} |
+            Export-Csv -Path failed_collection.csv -Append -NoTypeInformation
+
+        # increment the range for the next batch of systems
+        $compsLow += $compsInc
+        $compsHigh += $compsInc
+
+        ### Removing data pull ###
+        # Local group memberships
+        Write-Output "Remoting: Getting local group memberships."
+        Get-BrokenPSSessions 'LocalGroupMembers'
+
+        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getLocalGroupMembers} |
+            Select-Object PSComputerName,
+                          @{Name='GroupName'; Expression={$_.GroupName}},
+                          @{Name='Name'; Expression={$_.Name}},
+                          @{Name='Domain'; Expression={$_.Domain}},
+                          @{Name='SID'; Expression={$_.SID}},
+                          @{Name='RID'; Expression={$_.RID}},
+                          @{Name='PrincipalSource'; Expression={$_.PrincipalSource}},
+                          @{Name='ObjectClass'; Expression={$_.ObjectClass}} |
+            Export-Csv -Path local_groups.csv -Append -NoTypeInformation
 
 
-    # Hard drive volume storage information
-    Write-Output "Remoting: Getting hard drive storage information."
-    Get-BrokenPSSessions 'HardDriveInformation'
+        # Local user accounts
+        Write-Output "Remoting: Getting local user accounts."
+        Get-BrokenPSSessions 'LocalUsers'
 
-    Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-PSDrive -PSProvider FileSystem} |
-        Select-Object PSComputerName,
-                      Name,
-                      Root,
-                      Description,
-                      @{name='Used (GB)'; expression={[math]::Round($_.Used/1GB, 2)}},
-                      @{name='Free (GB)'; expression={[math]::Round($_.Free/1GB, 2)}},
-                      DisplayRoot |
-        Export-Csv -Path hard_drive_storage.csv -Append -NoTypeInformation
-
-
-    # Shares
-    Write-Output "Remoting: Getting shares."
-    Get-BrokenPSSessions 'Shares'
-
-    Invoke-Command -Session (Get-OpenPSSessions) `
-                   -ScriptBlock {
-                        Get-SmbShare | 
-                        Select-Object Name,Path,Description,EncryptData,CurrentUsers,ShareType
-                   } |
-        Select-Object PSComputerName,Name,Path,Description,EncryptData,CurrentUsers,ShareType |
-        Export-Csv -Path shares.csv -Append -NoTypeInformation
+        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getLocalUsers} |
+            Select-Object PSComputerName,
+					      Name,
+	   				      SID,
+		  			      RID,
+		 			      Enabled,
+					      PasswordRequired,
+	   				      PasswordChangeable,
+		  			      PrincipalSource,
+		 			      Description,
+					      PasswordLastSet,
+	   				      @{Name='PasswordLastSetDays'; Expression={if($_.PasswordLastSetDays -ne '') {[math]::Round($_.PasswordLastSetDays, 0)}}},
+		  			      LastLogon |
+	        Export-Csv -Path local_users.csv -Append -NoTypeInformation
 
 
-    # Share permissions
-    Write-Output "Remoting: Getting share permissions."
-    Get-BrokenPSSessions 'SharePermissions'
+        # Processes
+        Write-Output "Remoting: Getting processes."
+        Get-BrokenPSSessions 'Process'
 
-    Invoke-Command -Session (Get-OpenPSSessions) `
-                   -ScriptBlock {
-                        Get-SmbShare | 
-                        Get-SmbShareAccess | 
-                        Select-Object Name,AccountName,AccessControlType,AccessRight
-                   } |
-	    Select-Object PSComputerName,Name,AccountName,AccessControlType,AccessRight |
-        Export-Csv -Path share_permissions.csv -Append -NoTypeInformation
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ScriptBlock {
+                            Get-Process -IncludeUserName -ErrorAction SilentlyContinue | 
+                            Select-Object Name,
+                                          Id,
+                                          Path,
+                                          @{Name='Hash'; Expression={if($_.Path -notlike '') {(Get-FileHash $_.Path -ErrorAction SilentlyContinue).Hash}}},
+                                          UserName,
+                                          Company,
+                                          Description,
+                                          ProductVersion,
+                                          StartTime
+                       } |
+            Select-Object PSComputerName,Name,Id,Path,Hash,UserName,Company,Description,ProductVersion,StartTime |
+	        Export-Csv -Path processes.csv -Append -NoTypeInformation
 
-    Write-Output "Remoting: Removing PowerShell sessions."
-    Get-PSSession | Remove-PSSession
+
+        # Scheduled tasks
+        Write-Output "Remoting: Getting scheduled tasks."
+        Get-BrokenPSSessions 'ScheduledTask'
+
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ScriptBlock {
+                            $guidRegex = "([a-zA-Z0-9_. ]+)-?\{([0-9A-F]+-?){5}\}"
+                            $sidRegex  = "([a-zA-Z0-9_. ]+)((_|-)S-1-5-21)((-\d+){4})"
+                            Get-ScheduledTask | 
+                            Select-Object @{Name='TaskName'; Expression={if( $_.TaskName -match $guidRegex ) { $Matches[1] } elseif ($_.TaskName -match $sidRegex ) { $Matches[1] } else {$_.TaskName}}},
+                                            State,
+                                            Author,
+                                            TaskPath,
+                                            Description
+                        } |
+            Select-Object PSComputerName,TaskName,State,Author,TaskPath,Description |
+	        Export-Csv -Path scheduled_tasks.csv -Append -NoTypeInformation
+
+
+        # Services
+        Write-Output "Remoting: Getting services."
+        Get-BrokenPSSessions 'Services'
+
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ScriptBlock {
+                            Get-Service | 
+                            Select-Object @{Name='Name'; Expression={$_.Name.Split('_')[0]}}, # remove unique service name suffix
+                                          @{Name='DisplayName'; Expression={$_.DisplayName.Split('_')[0]}}, # remove unique service display name suffix
+                                          Status,
+                                          StartType,
+                                          ServiceType
+                       } |
+            Select-Object PSComputerName,Name,DisplayName,Status,StartType,ServiceType |
+            Export-Csv -Path services.csv -Append -NoTypeInformation
+
+
+        # Network connections
+        Write-Output "Remoting: Getting network connections."
+        Get-BrokenPSSessions 'Network'
+
+        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:netConnects} |
+            Select-Object PSComputerName,Date,Time,LocalAddress,LocalPort,RemoteAddress,RemotePort,State,OwningProcess,ProcessName |
+            Export-Csv -Path net.csv -Append -NoTypeInformation
+
+
+        # Downloads, Documents, and Desktop files
+        Write-Output "Remoting: Getting Documents, Desktop, and Downloads file information."
+        Get-BrokenPSSessions 'Files'
+
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ScriptBlock {
+                            Get-ChildItem -Path 'C:\Users\*\Downloads\','C:\Users\*\Documents\','C:\Users\*\Desktop\' -Recurse -ErrorAction SilentlyContinue | 
+                            Select-Object Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes
+                       } |
+	        Select-Object PSComputerName,Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes |
+            Export-Csv -Path files.csv -Append -NoTypeInformation
+
+
+        # 64 bit programs
+        Write-Output "Remoting: Getting 64-bit programs."
+        Get-BrokenPSSessions 'Programs64'
+
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ScriptBlock {
+                            Get-ChildItem -Path 'C:\Program Files' | 
+                            Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'64-bit'}}
+                       } |
+	        Select-Object PSComputerName,Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,ProgramType |
+            Export-Csv -Path programs.csv -Append -NoTypeInformation
+
+
+        # 32 bit programs
+        Write-Output "Remoting: Getting 32-bit programs."
+        Get-BrokenPSSessions 'Programs32'
+
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ScriptBlock {
+                            Get-ChildItem -Path 'C:\Program Files (x86)' | 
+                            Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'32-bit'}}
+                       } |
+	        Select-Object PSComputerName,Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,ProgramType |
+            Export-Csv -Path programs.csv -Append -NoTypeInformation
+
+
+        # System information
+        Write-Output "Remoting: Getting system information."
+        Get-BrokenPSSessions 'SystemInformation'
+
+        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-ComputerInfo} |
+            Select-Object PSComputerName,
+                          WindowsCurrentVersion,
+                          WindowsEditionId,
+                          WindowsVersion,
+                          BiosManufacturer,
+                          BiosSMBIOSBIOSVersion,
+                          BiosFirmwareType,
+                          BiosReleaseDate,
+                          BiosSeralNumber,
+                          BiosCurrentLanguage,
+                          CsDomain,
+                          CsDomainRole,
+                          CsManufacturer,
+                          CsModel,
+                          @{name='CsProcessors'; expression={$_.CsProcessors.Name}},
+                          CsNumberOfProcessors,
+                          @{name='CsNumberOfCores'; expression={$_.CsProcessors.NumberOfCores}},
+                          CsNumberofLogicalProcessors,
+                          CsPartOfDomain,
+                          @{name='CsTotalPhysicalMemory (GB)'; expression={[math]::Round($_.CsTotalPhysicalMemory/1GB, 1)}},
+                          @{name='CsMaxClockSpeed'; expression={$_.CsProcessors.MaxClockSpeed}},
+                          OsName,
+                          OsType,
+                          OsVersion,
+                          OsBuildNumber,
+                          OsLocale,
+                          OsManufacturer,
+                          OsArchitecture,
+                          OsLanguage,
+                          KeyboardLayout,
+                          TimeZone,
+                          LogonServer,
+                          PowerPlatformRole |
+            Export-Csv -Path system_info.csv -Append -NoTypeInformation
+
+
+        # System hot fix information
+        Write-Output "Remoting: Getting system hot fix information."
+        Get-BrokenPSSessions 'SystemHotFix'
+    
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ScriptBlock {
+                            (Get-ComputerInfo).OsHotFixes | 
+                                ForEach-Object {
+                                  @{
+                                        HotFixID    = $_.HotFixID
+                                        Description = $_.Description
+                                        InstalledOn = $_.InstalledOn
+                                    }
+                                 }
+                       } | 
+            Select-Object PSComputerName,
+                          @{Name='HotFixID'; Expression={$_.HotFixID}},
+                          @{Name='Description'; Expression={$_.Description}},
+                          @{Name='InstalledOn'; Expression={$_.InstalledOn}} | 
+            Export-Csv -Path hotfixes.csv -Append -NoTypeInformation
+
+    
+        # BitLocker information
+        Write-Output "Remoting: Getting BitLocker information."
+        Get-BrokenPSSessions 'BitLocker'
+
+        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-BitLockerVolume} |
+            Select-Object PSComputerName,
+                          MountPoint,
+                          EncryptionMethod,
+                          AutoUnlockEnabled,
+                          AutoUnlockKeyStored,
+                          MetadataVersion,
+                          VolumeStatus,
+                          ProtectionStatus,
+                          LockStatus,
+                          EncryptionPercentage,
+                          WipePercentage,
+                          VolumeType,
+                          @{name='CapacityGB'; expression={[math]::Round($_.CapacityGB, 1)}},
+                          @{Name='KeyProtector'; Expression={$_.KeyProtector -join '|'}} |
+            Export-Csv -Path bitlocker.csv -Append -NoTypeInformation
+
+
+        # Physical disk information
+        Write-Output "Remoting: Getting physical disk information."
+        Get-BrokenPSSessions 'PhysicalDisk'
+        
+        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getPhysicalDiskInfo} |
+            Select-Object PSComputerName,
+                          OperationalStatus,
+                          HealthStatus,
+                          BusType,
+                          MediaType,
+                          SpindleSpeed,
+                          Manufacturer,
+                          Model,
+                          FirmwareVersion,
+                          IsPartial,
+                          LogicalSectorSize,
+                          PhysicalSectorSize,
+                          @{name='AllocatedSizeGB'; expression={[math]::Round($_.AllocatedSize/1GB, 1)}},
+                          @{name='SizeGB'; expression={[math]::Round($_.Size/1GB, 1)}} |
+            Export-Csv -Path physical_disk.csv -Append -NoTypeInformation
+
+
+        # Hard drive volume storage information
+        Write-Output "Remoting: Getting hard drive storage information."
+        Get-BrokenPSSessions 'HardDriveInformation'
+
+        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-PSDrive -PSProvider FileSystem} |
+            Select-Object PSComputerName,
+                          Name,
+                          Root,
+                          Description,
+                          @{name='Used (GB)'; expression={[math]::Round($_.Used/1GB, 2)}},
+                          @{name='Free (GB)'; expression={[math]::Round($_.Free/1GB, 2)}},
+                          DisplayRoot |
+            Export-Csv -Path hard_drive_storage.csv -Append -NoTypeInformation
+
+
+        # Shares
+        Write-Output "Remoting: Getting shares."
+        Get-BrokenPSSessions 'Shares'
+
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ScriptBlock {
+                            Get-SmbShare | 
+                            Select-Object Name,Path,Description,EncryptData,CurrentUsers,ShareType
+                       } |
+            Select-Object PSComputerName,Name,Path,Description,EncryptData,CurrentUsers,ShareType |
+            Export-Csv -Path shares.csv -Append -NoTypeInformation
+
+
+        # Share permissions
+        Write-Output "Remoting: Getting share permissions."
+        Get-BrokenPSSessions 'SharePermissions'
+
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ScriptBlock {
+                            Get-SmbShare | 
+                            Get-SmbShareAccess | 
+                            Select-Object Name,AccountName,AccessControlType,AccessRight
+                       } |
+	        Select-Object PSComputerName,Name,AccountName,AccessControlType,AccessRight |
+            Export-Csv -Path share_permissions.csv -Append -NoTypeInformation
+
+        Write-Output "Remoting: Removing PowerShell sessions."
+        Get-PSSession | Remove-PSSession
+    }
 }
 
 
@@ -1097,7 +1130,7 @@ function Collect-ServerFeatures {
         $serverSessions = New-PSSession -ComputerName $winServers.Name -SessionOption $sessionOpt -ErrorAction SilentlyContinue # Create reusable PS Sessions
 
         # Determine the systems where PS remoting failed
-        Get-FailedWinRMSessions $winServers | 
+        Get-FailedWinRMSessions $winServers.Name | 
             Select-Object Name,@{Name='Failure'; Expression={'WinRMServer'}} |
             Export-Csv -Path failed_collection.csv -Append -NoTypeInformation
 
