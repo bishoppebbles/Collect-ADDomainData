@@ -74,9 +74,9 @@
     Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org -ActiveDirectoryOnly
     Run Active Directory only collection with the Migrated switch.
 .NOTES
-    Version 1.0.40
+    Version 1.0.41
     Author: Sam Pursglove
-    Last modified: 27 January 2025
+    Last modified: 29 January 2025
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -1302,9 +1302,11 @@ function Collect-ActiveDirectoryDatasets {
 # Cmdlet main()
 if (-not $LocalCollectionOnly) {
     
-    # confirm the AD module is available, otherwise exit
+    # confirm the AD module is installed or available, otherwise exit
     try {
-        Import-Module ActiveDirectory -ErrorAction Stop
+        if(-not (Get-Module activedirectory)) {
+            Import-Module ActiveDirectory -ErrorAction Stop
+        }
     } catch {
         Write-Output 'Cannot load the ActiveDirectory Module, exiting.'
         Break
