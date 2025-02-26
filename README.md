@@ -111,6 +111,12 @@ foreach($c in $comps) {
     * Output fields: HotFixID, Description, InstalledOn
 * **BitLocker information**
     * MountPoint, EncryptionMethod, AutoUnlockEnabled, AutoUnlockKeyStored, MetadataVersion, VolumeStatus, ProtectionStatus, LockStatus, EncryptionPercentage, WipePercentage, VolumeType, Capacity (GB), KeyProtector
+* **Antimalware software information**
+    * AMEngineVersion, AMProductVersion, AMRunningMode, AMServiceEnabled, AMServiceVersion, AntispywareEnabled, AntispywareSignatureLastUpdated, AntispywareSignatureVersion, AntivirusEnabled, AntivirusSignatureLastUpdated, AntivirusSignatureVersion, BehaviorMonitorEnabled, DefenderSignaturesOutOfDate, DeviceControlDefaultEnforcement, DeviceControlPoliciesLastUpdated, DeviceControlState, FullScanOverdue, FullScanRequired, InitializationProgress, IoavProtectionEnabled, IsTamperProtected, IsVirtualMachine, NISEnabled, NISEngineVersion, NISSignatureLastUpdated, NISSignatureVersion, OnAccessProtectionEnabled, QuickScanEndTime, QuickScanStartTime, QuickScanOverdue, QuickScanSignatureVersion, RealTimeProtectionEnabled, RebootRequired, SmartAppControlState, TamperProtectionSource, TDTCapable, TDTMode, TDTStatus, TDTTelemetry
+       * AM - Antimalware
+       * Ioav - IOfficeAntivirus (detects suspicious internet file downloads)
+       * NIS - Network Inspection System (network traffic monitoring)
+       * TDT - (Intel) Threat Detection Technology (focuses on the detection of Intel CPU execution patterns that are characteristic of ransomware)
 * **Physical drive information**
     * OperationalStatus, HealthStatus, BusType, MediaType, SpindleSpeed, Manufacturer, Model, FirmwareVersion, IsPartial, LogicalSectorSize, PhysicalSectorSize, AllocatedSize (GB), Size (GB)
 * **Hard drive volume storage information**
