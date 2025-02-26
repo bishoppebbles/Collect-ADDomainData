@@ -74,9 +74,9 @@
     Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org -ActiveDirectoryOnly
     Run Active Directory only collection with the Migrated switch.
 .NOTES
-    Version 1.0.41
+    Version 1.0.42
     Author: Sam Pursglove
-    Last modified: 29 January 2025
+    Last modified: 26 February 2025
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -573,9 +573,11 @@ function Collect-LocalSystemData {
         Select-Object PSComputerName,HotFixID,Description,InstalledOn | 
         Export-Csv -Path hotfixes.csv -Append -NoTypeInformation
 
+
     # BitLocker information
     Write-Output "Local: Getting BitLocker information."
-    Get-BitLockerVolume |
+    if(Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue) {
+        Get-BitLockerVolume |
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
                       MountPoint,
                       EncryptionMethod,
@@ -591,6 +593,56 @@ function Collect-LocalSystemData {
                       @{name='CapacityGB'; expression={[math]::Round($_.CapacityGB, 1)}},
                       @{Name='KeyProtector'; Expression={$_.KeyProtector -join '|'}} |
         Export-Csv -Path bitlocker.csv -Append -NoTypeInformation
+    
+    } else {
+        Write-Output "Local: BitLocker module unavailable."
+    }
+
+
+    # Antimalware software information
+    Write-Output "Local: Getting antimalware software information."
+    Get-MpComputerStatus |
+        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
+                      AMEngineVersion,
+                      AMProductVersion,
+                      AMRunningMode,
+                      AMServiceEnabled,
+                      AMServiceVersion,
+                      AntispywareEnabled,
+                      AntispywareSignatureLastUpdated,
+                      AntispywareSignatureVersion,
+                      AntivirusEnabled,
+                      AntivirusSignatureLastUpdated,
+                      AntivirusSignatureVersion,
+                      BehaviorMonitorEnabled,
+                      DefenderSignaturesOutOfDate,
+                      DeviceControlDefaultEnforcement,
+                      DeviceControlPoliciesLastUpdated,
+                      DeviceControlState,
+                      FullScanOverdue,
+                      FullScanRequired,
+                      InitializationProgress,
+                      IoavProtectionEnabled,
+                      IsTamperProtected,
+                      IsVirtualMachine,
+                      NISEnabled,
+                      NISEngineVersion,
+                      NISSignatureLastUpdated,
+                      NISSignatureVersion,
+                      OnAccessProtectionEnabled,
+                      QuickScanEndTime,
+                      QuickScanStartTime,
+                      QuickScanOverdue,
+                      QuickScanSignatureVersion,
+                      RealTimeProtectionEnabled,
+                      RebootRequired,
+                      SmartAppControlState,
+                      TamperProtectionSource,
+                      TDTCapable,
+                      TDTMode,
+                      TDTStatus,
+                      TDTTelemetry |
+        Export-Csv -Path antimalware.csv -Append -NoTypeInformation
 
 
     # Physical disk information
@@ -815,7 +867,7 @@ function Collect-RemoteSystemData {
         $compsLow += $compsInc
         $compsHigh += $compsInc
 
-        ### Removing data pull ###
+        ### Remoting data pull ###
         # Local group memberships
         Write-Output "Remoting: Getting local group memberships."
         Get-BrokenPSSessions 'LocalGroupMembers'
@@ -1024,7 +1076,7 @@ function Collect-RemoteSystemData {
         Write-Output "Remoting: Getting BitLocker information."
         Get-BrokenPSSessions 'BitLocker'
 
-        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-BitLockerVolume} |
+        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {if(Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue) {Get-BitLockerVolume} } |
             Select-Object PSComputerName,
                           MountPoint,
                           EncryptionMethod,
@@ -1040,6 +1092,54 @@ function Collect-RemoteSystemData {
                           @{name='CapacityGB'; expression={[math]::Round($_.CapacityGB, 1)}},
                           @{Name='KeyProtector'; Expression={$_.KeyProtector -join '|'}} |
             Export-Csv -Path bitlocker.csv -Append -NoTypeInformation
+
+
+        # Antimalware software information
+        Write-Output "Remoting: Getting antimalware software information."
+        Get-BrokenPSSessions 'Antimalware'
+        
+        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-MpComputerStatus} |
+            Select-Object PSComputerName,
+                          AMEngineVersion,
+                          AMProductVersion,
+                          AMRunningMode,
+                          AMServiceEnabled,
+                          AMServiceVersion,
+                          AntispywareEnabled,
+                          AntispywareSignatureLastUpdated,
+                          AntispywareSignatureVersion,
+                          AntivirusEnabled,
+                          AntivirusSignatureLastUpdated,
+                          AntivirusSignatureVersion,
+                          BehaviorMonitorEnabled,
+                          DefenderSignaturesOutOfDate,
+                          DeviceControlDefaultEnforcement,
+                          DeviceControlPoliciesLastUpdated,
+                          DeviceControlState,
+                          FullScanOverdue,
+                          FullScanRequired,
+                          InitializationProgress,
+                          IoavProtectionEnabled,
+                          IsTamperProtected,
+                          IsVirtualMachine,
+                          NISEnabled,
+                          NISEngineVersion,
+                          NISSignatureLastUpdated,
+                          NISSignatureVersion,
+                          OnAccessProtectionEnabled,
+                          QuickScanEndTime,
+                          QuickScanStartTime,
+                          QuickScanOverdue,
+                          QuickScanSignatureVersion,
+                          RealTimeProtectionEnabled,
+                          RebootRequired,
+                          SmartAppControlState,
+                          TamperProtectionSource,
+                          TDTCapable,
+                          TDTMode,
+                          TDTStatus,
+                          TDTTelemetry |
+            Export-Csv -Path antimalware.csv -Append -NoTypeInformation
 
 
         # Physical disk information
