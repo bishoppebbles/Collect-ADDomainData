@@ -31,6 +31,8 @@
     Collect the datasets on the local system (does not use PowerShell remoting functionality).
 .PARAMETER FailedWinRM
     Try to collection systems that previously failed the WinRM connection attempt.
+.PARAMETER SystemList
+    The list of fully qualified domain systems to collect.
 .EXAMPLE
     .\Collect-ADDomainData.ps1
     Collects datasets for domain systems using the AD domain distinguished name of the script host.
@@ -73,10 +75,16 @@
 .EXAMPLE
     Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org -ActiveDirectoryOnly
     Run Active Directory only collection with the Migrated switch.
+.EXAMPLE
+    Collect-ADDomainData.ps1 -SystemList (Get-Content servers.txt)
+    This command attempts to pull all FQDN system names listed in the servers.txt file.  It performs no Active Directory lookups.
+.EXAMPLE
+    Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
+    This command attempts to pull all FQDN system names as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.42
+    Version 1.0.43
     Author: Sam Pursglove
-    Last modified: 26 February 2025
+    Last modified: 07 March 2025
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -126,8 +134,12 @@ param (
     [Parameter(ParameterSetName='ADOnlyMigrated', Mandatory=$True, HelpMessage='Domain controller server')]
     [string]$Server = '',
 
+    [Parameter(ParameterSetName='List', Mandatory=$True, ValueFromPipeline=$False, HelpMessage="Enter the list of fully qualified domain name systems (e.g. 'svr1.domain.com','svr2.domain.com')")]
+    [string[]]$SystemList = '',
+
     [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Limit the number of active PowerShell Remoting sessions.')]
     [Parameter(ParameterSetName='Migrated', Mandatory=$False, HelpMessage='Limit the number of active PowerShell Remoting sessions.')]
+    [Parameter(ParameterSetName='List', Mandatory=$False, HelpMessage='Limit the number of active PowerShell Remoting sessions.')]
     [int]$PSRemotingLimit = 0,
 
     [Parameter(ParameterSetName='Local', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collects local system data, not domain systems')]
@@ -156,8 +168,8 @@ param (
     [Parameter(ParameterSetName='LocalServerFeature', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collect Windows Server Feature data')]
     [Switch]$ServerFeaturesOnly,
 
-    [Parameter(ParameterSetName='ADOnly', Mandatory=$True, ValueFromPipeline=$True, HelpMessage='Collect AD user and group membership data')]
-    [Parameter(ParameterSetName='ADOnlyMigrated', Mandatory=$True, ValueFromPipeline=$True, HelpMessage='Collect AD user and group membership data')]
+    [Parameter(ParameterSetName='ADOnly', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collect AD user and group membership data')]
+    [Parameter(ParameterSetName='ADOnlyMigrated', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collect AD user and group membership data')]
     [Switch]$ActiveDirectoryOnly,
 
     [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Try to collection systems that previous failed the WinRM connection attempt')]
@@ -819,6 +831,8 @@ function Collect-RemoteSystemData {
     if($FailedWinRM) {
         Write-Output "Active Directory: Getting previously failed PSRemoting domain computer objects."
         $computers = Try-FailedWinRM $DN
+    } elseif($SystemList) {
+        $computers = $SystemList
     } else {
         Write-Output "Active Directory: Getting domain computer objects."
         $computers = Get-DomainComputerObjects $DN
@@ -828,7 +842,10 @@ function Collect-RemoteSystemData {
     }    
 
     # Create PS sessions for Windows only systems
-    $computers = $computers | Where-Object {$_.OperatingSystem -like "Windows*"}
+    if(-not $SystemList) {
+        $computers = $computers | Where-Object {$_.OperatingSystem -like "Windows*"}
+    }
+    
     $sessionOpt = New-PSSessionOption -NoMachineProfile # Minimize your presence and don't create a user profile on every system (e.g., C:\Users\<username>)
 
 
@@ -856,12 +873,25 @@ function Collect-RemoteSystemData {
 
         # Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
         Write-Output "Remoting: Creating PowerShell sessions (Systems: $($compsLow + 1) - $($compsHigh + 1) of $($computers.Count))."
-        New-PSSession -ComputerName $computers[$compsLow..$compsHigh].Name -SessionOption $sessionOpt -ErrorAction SilentlyContinue | Out-Null # Create reusable PS Sessions
+        if($SystemList) {
+            New-PSSession -ComputerName $computers[$compsLow..$compsHigh] -SessionOption $sessionOpt -ErrorAction SilentlyContinue | Out-Null # Create reusable PS Sessions
+        } else {
+            New-PSSession -ComputerName $computers[$compsLow..$compsHigh].Name -SessionOption $sessionOpt -ErrorAction SilentlyContinue | Out-Null # Create reusable PS Sessions
+        }
 
-        # Determine the systems where PS remoting failed
-        Get-FailedWinRMSessions $computers[$compsLow..$compsHigh].Name | 
-            Select-Object Name,@{Name='Failure'; Expression={'WinRM'}} |
-            Export-Csv -Path failed_collection.csv -Append -NoTypeInformation
+
+        # Determine the systems where PS remoting failed for a user supplied list of targets
+        if($SystemList) {
+            Get-FailedWinRMSessions $computers[$compsLow..$compsHigh] | 
+                Select-Object Name,@{Name='Failure'; Expression={'WinRMList'}} |
+                Export-Csv -Path failed_collection.csv -Append -NoTypeInformation
+        
+        # Determine the systems where PS remoting failed for systems that were gathered from Active Directory
+        } else {
+            Get-FailedWinRMSessions $computers[$compsLow..$compsHigh].Name | 
+                Select-Object Name,@{Name='Failure'; Expression={'WinRM'}} |
+                Export-Csv -Path failed_collection.csv -Append -NoTypeInformation
+        }
 
         # increment the range for the next batch of systems
         $compsLow += $compsInc
@@ -1219,6 +1249,8 @@ function Collect-ServerFeatures {
         if($FailedWinRM) {
             Write-Output "Active Directory: Getting previously failed PSRemoting domain computer objects."
             $winServers = Try-FailedWinRM $DN -ServersOnly
+        } elseif($SystemList) {
+            $computers = $SystemList
         } else {
             Write-Output "Active Directory: Getting server OS domain computer objects."
             $winServers = Get-DomainComputerObjects $DN -ServersOnly
@@ -1227,12 +1259,26 @@ function Collect-ServerFeatures {
         # Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
         Write-Output "Remoting: Creating PowerShell server sessions."
         $sessionOpt = New-PSSessionOption -NoMachineProfile # Minimize your presence and don't create a user profile on every system (e.g., C:\Users\<username>)
-        $serverSessions = New-PSSession -ComputerName $winServers.Name -SessionOption $sessionOpt -ErrorAction SilentlyContinue # Create reusable PS Sessions
+        
+        if($SystemList) {
+            $serverSessions = New-PSSession -ComputerName $winServers -SessionOption $sessionOpt -ErrorAction SilentlyContinue # Create reusable PS Sessions
+        } else {
+            $serverSessions = New-PSSession -ComputerName $winServers.Name -SessionOption $sessionOpt -ErrorAction SilentlyContinue # Create reusable PS Sessions
+        }
 
-        # Determine the systems where PS remoting failed
-        Get-FailedWinRMSessions $winServers.Name | 
-            Select-Object Name,@{Name='Failure'; Expression={'WinRMServer'}} |
-            Export-Csv -Path failed_collection.csv -Append -NoTypeInformation
+
+        if($SystemList) {
+        # Determine the systems where PS remoting failed for a user supplied list of targets
+            Get-FailedWinRMSessions $winServers.Name | 
+                Select-Object Name,@{Name='Failure'; Expression={'WinRMServerList'}} |
+                Export-Csv -Path failed_collection.csv -Append -NoTypeInformation
+
+        # Determine the systems where PS remoting failed for systems that were gathered from Active Directory
+        } else {
+            Get-FailedWinRMSessions $winServers.Name | 
+                Select-Object Name,@{Name='Failure'; Expression={'WinRMServer'}} |
+                Export-Csv -Path failed_collection.csv -Append -NoTypeInformation
+        }
 
         # Windows Server installed features
         Write-Output "Server: Getting installed features."
@@ -1418,6 +1464,8 @@ if (-not $LocalCollectionOnly) {
         $distinguishedName = $SearchBase
     } elseif($OUName) {
         $distinguishedName = 'OU=' + $OUName + ',' + (Get-ADDomain).DistinguishedName
+    } elseif($SystemList) {
+        $distinguishedName = ''
     } else {
         $distinguishedName = (Get-ADDomain).DistinguishedName
     }
