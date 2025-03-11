@@ -85,9 +85,9 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.44
+    Version 1.0.45
     Author: Sam Pursglove
-    Last modified: 10 March 2025
+    Last modified: 11 March 2025
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -304,38 +304,43 @@ function getLocalGroupMembers {
         function localGroupMember {
             Param($Group)
             
-            $Group.Invoke('members') | ForEach-Object {
-                # parse the ADSPath to get the domain and determine if it's a local object or from AD
-                $_.GetType().InvokeMember("ADSPath", 'GetProperty', $null, $_, $null) -match "WinNT:\/\/(\w+)\/(.+)\/" | Out-Null
+            try {
+                $Group.Invoke('members') | ForEach-Object {
+                    # parse the ADSPath to get the domain and determine if it's a local object or from AD
+                    $_.GetType().InvokeMember("ADSPath", 'GetProperty', $null, $_, $null) -match "WinNT:\/\/(\w+)\/(.+)\/" | Out-Null
             
-                if($Matches.Count -gt 2) {
-                    $domain = $Matches[2]
-                    $source = 'Local'
-                    $Matches.Clear()
-                } elseif($Matches) {
-                    $_.GetType().InvokeMember("ADSPath", 'GetProperty', $null, $_, $null) -match "WinNT:\/\/(\w+)\/" | Out-Null
-                    $domain = $Matches[1]
-                    $source = 'ActiveDirectory'
-                    $Matches.Clear()
-                }        
+                    if($Matches.Count -gt 2) {
+                        $domain = $Matches[2]
+                        $source = 'Local'
+                        $Matches.Clear()
+                    } elseif($Matches) {
+                        $_.GetType().InvokeMember("ADSPath", 'GetProperty', $null, $_, $null) -match "WinNT:\/\/(\w+)\/" | Out-Null
+                        $domain = $Matches[1]
+                        $source = 'ActiveDirectory'
+                        $Matches.Clear()
+                    }        
 
-                $SID = ConvertTo-SID $_.GetType().InvokeMember("ObjectSID", 'GetProperty', $null, $_, $null)
+                    $SID = ConvertTo-SID $_.GetType().InvokeMember("ObjectSID", 'GetProperty', $null, $_, $null)
 
-                # parse the RID from the SID
-                if ($SID -match $sidRegex) {
-                        $RID = $Matches[1]
-                    } else {
-                        $RID = ''
-                    } 
+                    # parse the RID from the SID
+                    if ($SID -match $sidRegex) {
+                            $RID = $Matches[1]
+                        } else {
+                            $RID = ''
+                        } 
 
-                @{
-                    Name            = $_.GetType().InvokeMember("Name", 'GetProperty', $null, $_, $null)
-                    ObjectClass     = $_.GetType().InvokeMember("Class", 'GetProperty', $null, $_, $null)    
-                    SID             = $SID
-                    RID             = $RID
-                    Domain          = $domain
-                    PrincipalSource = $source
+                    @{
+                        Name            = $_.GetType().InvokeMember("Name", 'GetProperty', $null, $_, $null)
+                        ObjectClass     = $_.GetType().InvokeMember("Class", 'GetProperty', $null, $_, $null)    
+                        SID             = $SID
+                        RID             = $RID
+                        Domain          = $domain
+                        PrincipalSource = $source
+                    }
                 }
+            
+            } catch {
+                # added to suppress errors returned due to violating constrained language mode restrictions
             }
         }
 
@@ -857,7 +862,8 @@ function Collect-RemoteSystemData {
         $computers = $computers | Where-Object {$_.OperatingSystem -like "Windows*" -and $_.SamAccountName -notlike "*DUPLICATE*"}
     }
     
-    $sessionOpt = New-PSSessionOption -NoMachineProfile # Minimize your presence and don't create a user profile on every system (e.g., C:\Users\<username>)
+    # Minimize your presence and don't create a user profile on every system (e.g., C:\Users\<username>)
+    $sessionOpt = New-PSSessionOption -NoMachineProfile
 
 
     # Logic to run only $compInc number of PowerShell remoting sessions (e.g. 256) at a time
@@ -904,7 +910,7 @@ function Collect-RemoteSystemData {
         
         # Determine the systems where PS remoting failed for systems that were gathered from Active Directory
         } else {
-            Get-FailedWinRMSessions $computers[$compsLow..$compsHigh].DNSHostName | 
+            Get-FailedWinRMSessions $computers[$compsLow..$compsHigh].Name | 
                 Select-Object Name,@{Name='Failure'; Expression={'WinRM'}} |
                 Export-Csv -Path failed_collection.csv -Append -NoTypeInformation
         }
@@ -1277,8 +1283,9 @@ function Collect-ServerFeatures {
     
         # Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
         Write-Output "Remoting: Creating PowerShell server sessions."
-        $sessionOpt = New-PSSessionOption -NoMachineProfile # Minimize your presence and don't create a user profile on every system (e.g., C:\Users\<username>)
-        
+         # Minimize your presence and don't create a user profile on every system (e.g., C:\Users\<username>)
+        $sessionOpt = New-PSSessionOption -NoMachineProfile
+
         if($SystemList) {
             $serverSessions = New-PSSession -ComputerName $winServers -SessionOption $sessionOpt -ErrorAction SilentlyContinue # Create reusable PS Sessions
         } else {
