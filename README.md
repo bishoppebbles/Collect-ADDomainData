@@ -138,7 +138,7 @@ foreach($c in $comps) {
 * **AD computer objects**
     * DistinguishedName, Enabled, IPv4Address, LastLogonDate, Name, OperatingSystem, SamAccountName
 * **AD user objects**
-    * AccountExpirationDate, AccountNotDelegated, AllowReversiblePasswordEncryption, CannotChangePassword, DisplayName, Name, Enabled, LastLogonDate, LockedOut, PasswordExpired, PasswordNeverExpires, PasswordNotRequired, SamAccountName, SmartcardLogonRequired
+    * ScriptPath,AccountExpirationDate, AccountNotDelegated, AllowReversiblePasswordEncryption, CannotChangePassword, DisplayName, Name, Enabled, LastLogonDate, LockedOut, PasswordExpired, PasswordNeverExpires, PasswordNotRequired, SamAccountName, SmartcardLogonRequired
 * **AD group memberships**
     * UserSamAccountName, UserDN, UserName, GroupSamAccountName, GroupDN
 * **Empty AD groups**
