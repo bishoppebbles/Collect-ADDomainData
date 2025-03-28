@@ -85,9 +85,9 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.45
+    Version 1.0.46
     Author: Sam Pursglove
-    Last modified: 11 March 2025
+    Last modified: 28 March 2025
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -1365,13 +1365,13 @@ function Collect-ActiveDirectoryDatasets {
         $adUsers = Get-ADGroup @adUsersArgs |
             Get-ADGroupMember |
             ForEach-Object {
-                Get-ADUser -Filter "SamAccountName -like `"$($_.SamAccountName)`"" -Properties AccountExpirationDate,AccountNotDelegated,AllowReversiblePasswordEncryption,CannotChangePassword,LastLogonDate,LockedOut,PasswordExpired,PasswordNeverExpires,PasswordNotRequired,SmartcardLogonRequired -SearchBase "ou=users,$DN" -Server $Server
+                Get-ADUser -Filter "SamAccountName -like `"$($_.SamAccountName)`"" -Properties ScriptPath,AccountExpirationDate,AccountNotDelegated,AllowReversiblePasswordEncryption,CannotChangePassword,LastLogonDate,LockedOut,PasswordExpired,PasswordNeverExpires,PasswordNotRequired,SmartcardLogonRequired -SearchBase "ou=users,$DN" -Server $Server
             }
 
     } else {
         $adUsersArgs = @{
             Filter = "*"
-            Properties = 'AccountExpirationDate','AccountNotDelegated','AllowReversiblePasswordEncryption','CannotChangePassword','LastLogonDate','LockedOut','PasswordExpired','PasswordNeverExpires','PasswordNotRequired','SmartcardLogonRequired'
+            Properties = 'ScriptPath','AccountExpirationDate','AccountNotDelegated','AllowReversiblePasswordEncryption','CannotChangePassword','LastLogonDate','LockedOut','PasswordExpired','PasswordNeverExpires','PasswordNotRequired','SmartcardLogonRequired'
             SearchBase = $DN
         }
 
