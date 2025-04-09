@@ -85,7 +85,7 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.47
+    Version 1.0.48
     Author: Sam Pursglove
     Last modified: 09 April 2025
 
@@ -583,14 +583,7 @@ function Collect-LocalSystemData {
     Write-Output "Local: Getting network connections."
     netConnects | 
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Date,Time,LocalAddress,LocalPort,RemoteAddress,RemotePort,State,OwningProcess,ProcessName |
-        Export-Csv -Path net.csv -Append -NoTypeInformation
-
-    
-    # Downloads, Documents, and Desktop files
-    Write-Output "Local: Getting Documents, Desktop, and Downloads file information."
-    Get-ChildItem -Path 'C:\Users\*\Downloads\','C:\Users\*\Documents\','C:\Users\*\Desktop\' -Recurse |
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes |
-	    Export-Csv -Path files.csv -Append -NoTypeInformation
+        Export-Csv -Path net.csv -Append -NoTypeInformation 
 
     
     # 64 bit programs
@@ -778,6 +771,14 @@ function Collect-LocalSystemData {
         Get-SmbShareAccess | 
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,AccountName,AccessControlType,AccessRight |
         Export-Csv -Path share_permissions.csv -Append -NoTypeInformation
+
+    
+    # Downloads, Documents, and Desktop files
+    Write-Output "Local: Getting Documents, Desktop, and Downloads file information."
+    Get-ChildItem -Path 'C:\Users\*\Downloads\','C:\Users\*\Documents\','C:\Users\*\Desktop\' -Recurse |
+        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes |
+	    Export-Csv -Path files.csv -Append -NoTypeInformation
+
 }
 
 
@@ -1088,19 +1089,6 @@ function Collect-RemoteSystemData {
             Export-Csv -Path net.csv -Append -NoTypeInformation
 
 
-        # Downloads, Documents, and Desktop files
-        Write-Output "Remoting: Getting Documents, Desktop, and Downloads file information."
-        Get-BrokenPSSessions 'Files'
-
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ScriptBlock {
-                            Get-ChildItem -Path 'C:\Users\*\Downloads\','C:\Users\*\Documents\','C:\Users\*\Desktop\' -Recurse -ErrorAction SilentlyContinue | 
-                            Select-Object Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes
-                       } |
-	        Select-Object PSComputerName,Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes |
-            Export-Csv -Path files.csv -Append -NoTypeInformation
-
-
         # 64 bit programs
         Write-Output "Remoting: Getting 64-bit programs."
         Get-BrokenPSSessions 'Programs64'
@@ -1325,6 +1313,19 @@ function Collect-RemoteSystemData {
 
         Write-Output "Remoting: Removing PowerShell sessions."
         Get-PSSession | Remove-PSSession
+
+
+        # Downloads, Documents, and Desktop files
+        Write-Output "Remoting: Getting Documents, Desktop, and Downloads file information."
+        Get-BrokenPSSessions 'Files'
+
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ScriptBlock {
+                            Get-ChildItem -Path 'C:\Users\*\Downloads\','C:\Users\*\Documents\','C:\Users\*\Desktop\' -Recurse -ErrorAction SilentlyContinue | 
+                            Select-Object Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes
+                       } |
+	        Select-Object PSComputerName,Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes |
+            Export-Csv -Path files.csv -Append -NoTypeInformation
     }
 }
 
