@@ -85,9 +85,9 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.46
+    Version 1.0.47
     Author: Sam Pursglove
-    Last modified: 28 March 2025
+    Last modified: 09 April 2025
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -397,6 +397,67 @@ function getPhysicalDiskInfo {
                       Size
 }
 
+function getScheduledTask {
+
+    # GUID and SID regexs to remove any unique components in a scheduled task name
+    $guidRegex = "([a-zA-Z0-9_. ]+)-?\{([0-9A-F]+-?){5}\}"
+    $sidRegex  = "([a-zA-Z0-9_. ]+)((_|-)S-1-5-21)((-\d+){4})"
+
+    $tasks = Get-ScheduledTask
+
+    foreach($task in $tasks) {
+
+        # extract different fields depending on the action type
+        if ($task.Actions -like "MSFT_TaskExecAction") {
+            $classId   = 'N/A'
+            $data      = 'N/A'
+            $execute   = $task.Actions.Execute
+            $arguments = $task.Actions.Arguments
+
+            # escape a leading ( - ) sign for Excel viewing
+            if($arguments -match "^-") {
+                $arguments = "'$($arguments)"
+            }
+
+        } elseif ($task.Actions -like "MSFT_TaskComHandlerAction") {
+            $execute   = 'N/A'
+            $arguments = 'N/A'
+            $classid   = $task.Actions.ClassID
+            $data      = $task.Actions.Data
+
+            # escape a leading ( - ) sign for Excel viewing
+            if($data -match "^-") {
+                $data = "'$($data)"
+            }
+        }
+
+        # Remove unique components of scheduled task names so they can be compared across systems
+        if( $task.TaskName -match $guidRegex ) { 
+            $taskName = $Matches[1]
+        } elseif ($task.TaskName -match $sidRegex ) { 
+            $taskName = $Matches[1] 
+        } else {
+            $taskName = $task.TaskName
+        }
+
+        $taskInfo = Get-ScheduledTaskInfo -TaskName $task.URI
+
+        @{
+            'TaskName'    = $taskName
+            'TaskPath'    = $task.TaskPath
+            'Author'      = $task.Author
+            'Description' = $task.Description
+            'Execute'     = $execute
+            'Arguments'   = $arguments
+            'ClassID'     = $classId
+            'Data'        = $data
+            'State'       = $task.State
+            'LastRunTime' = $taskInfo.LastRunTime
+            'NextRunTime' = $taskInfo.NextRunTime
+        }
+    }
+}
+
 
 # Determine AD computer objects that did not connect with WinRM
 function Get-FailedWinRMSessions {
@@ -487,22 +548,25 @@ function Collect-LocalSystemData {
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,Id,Path,@{Name='Hash'; Expression={if($_.Path -notlike '') {(Get-FileHash $_.Path).Hash}}},UserName,Company,Description,ProductVersion,StartTime |
 	    Export-Csv -Path processes.csv -Append -NoTypeInformation
 
-    
+
     # Scheduled tasks
     Write-Output "Local: Getting scheduled tasks."
-    $guidRegex = "([a-zA-Z0-9_. ]+)-?\{([0-9A-F]+-?){5}\}"
-    $sidRegex  = "([a-zA-Z0-9_. ]+)((_|-)S-1-5-21)((-\d+){4})"
-    
-    Get-ScheduledTask |
+    getScheduledTask |
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
-                      @{Name='TaskName'; Expression={if( $_.TaskName -match $guidRegex ) { $Matches[1] } elseif ($_.TaskName -match $sidRegex ) { $Matches[1] } else {$_.TaskName}}},
-                      State,
-                      Author,
-                      TaskPath,
-                      Description |
+                      @{Name='TaskName'; Expression={$_.TaskName}},
+                      @{Name='TaskPath'; Expression={$_.TaskPath}},
+                      @{Name='State'; Expression={$_.State}},
+                      @{Name='Author'; Expression={$_.Author}},
+                      @{Name='Description'; Expression={$_.Description}},
+                      @{Name='Execute'; Expression={$_.Execute}},
+                      @{Name='Arguments'; Expression={$_.Arguments}},
+                      @{Name='ClassID'; Expression={$_.ClassID}},
+                      @{Name='Data'; Expression={$_.Data}},
+                      @{Name='LastRunTime'; Expression={$_.LastRunTime}},
+                      @{Name='NextRunTime'; Expression={$_.NextRunTime}} |
 	    Export-Csv -Path scheduled_tasks.csv -Append -NoTypeInformation
 
-    
+
     # Services
     Write-Output "Local: Getting services."
     Get-Service |
@@ -981,18 +1045,20 @@ function Collect-RemoteSystemData {
         Write-Output "Remoting: Getting scheduled tasks."
         Get-BrokenPSSessions 'ScheduledTask'
 
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ScriptBlock {
-                            $guidRegex = "([a-zA-Z0-9_. ]+)-?\{([0-9A-F]+-?){5}\}"
-                            $sidRegex  = "([a-zA-Z0-9_. ]+)((_|-)S-1-5-21)((-\d+){4})"
-                            Get-ScheduledTask | 
-                            Select-Object @{Name='TaskName'; Expression={if( $_.TaskName -match $guidRegex ) { $Matches[1] } elseif ($_.TaskName -match $sidRegex ) { $Matches[1] } else {$_.TaskName}}},
-                                            State,
-                                            Author,
-                                            TaskPath,
-                                            Description
-                        } |
-            Select-Object PSComputerName,TaskName,State,Author,TaskPath,Description |
+        #Invoke-Command -Session (Get-PSSession) -ScriptBlock ${function:getScheduledTask} |
+        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getScheduledTask} |
+            Select-Object PSComputerName,
+                          @{Name='TaskName'; Expression={$_.TaskName}},
+                          @{Name='TaskPath'; Expression={$_.TaskPath}},
+                          @{Name='State'; Expression={$_.State}},
+                          @{Name='Author'; Expression={$_.Author}},
+                          @{Name='Description'; Expression={$_.Description}},
+                          @{Name='Execute'; Expression={$_.Execute}},
+                          @{Name='Arguments'; Expression={$_.Arguments}},
+                          @{Name='ClassID'; Expression={$_.ClassID}},
+                          @{Name='Data'; Expression={$_.Data}},
+                          @{Name='LastRunTime'; Expression={$_.LastRunTime}},
+                          @{Name='NextRunTime'; Expression={$_.NextRunTime}} |
 	        Export-Csv -Path scheduled_tasks.csv -Append -NoTypeInformation
 
 
