@@ -85,9 +85,9 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.48
+    Version 1.0.49
     Author: Sam Pursglove
-    Last modified: 09 April 2025
+    Last modified: 11 April 2025
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -545,8 +545,45 @@ function Collect-LocalSystemData {
     }
 
     $localProcesses |
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,Id,Path,@{Name='Hash'; Expression={if($_.Path -notlike '') {(Get-FileHash $_.Path).Hash}}},UserName,Company,Description,ProductVersion,StartTime |
+        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
+                      Name,Id,Path,@{Name='Hash'; Expression={if($_.Path) {(Get-FileHash $_.Path).Hash}}},
+                      UserName,
+                      Company,
+                      Description,
+                      ProductVersion,
+                      StartTime |
 	    Export-Csv -Path processes.csv -Append -NoTypeInformation
+
+
+    # Modules
+    Write-Output "Local: Getting process modules."
+    $modTracker = @{}
+
+    $localProcesses | ForEach-Object {
+        $modules = $_.Modules
+
+        foreach($mod in $modules) {
+            $modSplit = $mod.FileName.Split('\')
+
+            if(-not $modTracker.ContainsKey($mod.FileName)) {
+                $modTracker[$mod.FileName] = (Get-FileHash $mod.FileName).Hash
+            }
+            
+            @{
+                ProcessName    = $_.Name
+                PID            = $_.Id
+                ModuleName     = $mod.ModuleName
+                ModulePath     = ($modSplit[0..($modSplit.count - 2)] -join "\") + '\'
+                ModuleHash     = $modTracker[$mod.FileName]
+            }
+        }
+    } | Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
+                      @{Name='ProcessName'; Expression={$_.ProcessName}},
+                      @{Name='PID'; Expression={$_.PID}},
+                      @{Name='ModuleName'; Expression={$_.ModuleName}},
+                      @{Name='ModulePath'; Expression={$_.ModulePath}},
+                      @{Name='ModuleHash'; Expression={$_.ModuleHash}} |
+	    Export-Csv -Path modules.csv -Append -NoTypeInformation
 
 
     # Scheduled tasks
