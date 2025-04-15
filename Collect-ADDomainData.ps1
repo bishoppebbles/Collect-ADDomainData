@@ -85,9 +85,9 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.49
+    Version 1.0.50
     Author: Sam Pursglove
-    Last modified: 11 April 2025
+    Last modified: 15 April 2025
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -570,19 +570,19 @@ function Collect-LocalSystemData {
             }
             
             @{
-                ProcessName    = $_.Name
-                PID            = $_.Id
-                ModuleName     = $mod.ModuleName
-                ModulePath     = ($modSplit[0..($modSplit.count - 2)] -join "\") + '\'
-                ModuleHash     = $modTracker[$mod.FileName]
+                ProcessName = $_.Name
+                PID         = $_.Id
+                Name        = $mod.ModuleName
+                Path        = ($modSplit[0..($modSplit.count - 2)] -join "\") + '\'
+                Hash        = $modTracker[$mod.FileName]
             }
         }
     } | Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
                       @{Name='ProcessName'; Expression={$_.ProcessName}},
                       @{Name='PID'; Expression={$_.PID}},
-                      @{Name='ModuleName'; Expression={$_.ModuleName}},
-                      @{Name='ModulePath'; Expression={$_.ModulePath}},
-                      @{Name='ModuleHash'; Expression={$_.ModuleHash}} |
+                      @{Name='Name'; Expression={$_.Name}},
+                      @{Name='Path'; Expression={$_.Path}},
+                      @{Name='Hash'; Expression={$_.Hash}} |
 	    Export-Csv -Path modules.csv -Append -NoTypeInformation
 
 
@@ -791,6 +791,7 @@ function Collect-LocalSystemData {
                       Description,
                       @{name='Used (GB)'; expression={[math]::Round($_.Used/1GB, 2)}},
                       @{name='Free (GB)'; expression={[math]::Round($_.Free/1GB, 2)}},
+                      @{name='Used (%)'; expression={[math]::Round($_.Used/($_.Used + $_.Free) * 100.0, 0)}},
                       DisplayRoot |
         Export-Csv -Path hard_drive_storage.csv -Append -NoTypeInformation
 
@@ -1078,6 +1079,41 @@ function Collect-RemoteSystemData {
             Select-Object PSComputerName,Name,Id,Path,Hash,UserName,Company,Description,ProductVersion,StartTime |
 	        Export-Csv -Path processes.csv -Append -NoTypeInformation
 
+        # Modules
+        Write-Output "Remoting: Getting process modules."
+        Get-BrokenPSSessions 'Modules'
+
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ScriptBlock {
+                            $modTracker = @{}
+
+                            Get-Process -ErrorAction SilentlyContinue | ForEach-Object {
+                                $modules = $_.Modules
+
+                                foreach($mod in $modules) {
+                                    $modSplit = $mod.FileName.Split('\')
+
+                                    if(-not $modTracker.ContainsKey($mod.FileName)) {
+                                        $modTracker[$mod.FileName] = (Get-FileHash $mod.FileName).Hash
+                                    }
+            
+                                    @{
+                                        ProcessName = $_.Name
+                                        PID         = $_.Id
+                                        Name        = $mod.ModuleName
+                                        Path        = ($modSplit[0..($modSplit.count - 2)] -join "\") + '\'
+                                        Hash        = $modTracker[$mod.FileName]
+                                    }
+                                }
+                            }
+                       } | Select-Object @{Name='PSComputerName'; Expression={$_.PSComputerName}},
+                                         @{Name='ProcessName'; Expression={$_.ProcessName}},
+                                         @{Name='PID'; Expression={$_.PID}},
+                                         @{Name='Name'; Expression={$_.Name}},
+                                         @{Name='Path'; Expression={$_.Path}},
+                                         @{Name='Hash'; Expression={$_.Hash}} |
+	                            Export-Csv -Path modules.csv -Append -NoTypeInformation
+
 
         # Scheduled tasks
         Write-Output "Remoting: Getting scheduled tasks."
@@ -1156,7 +1192,8 @@ function Collect-RemoteSystemData {
         Write-Output "Remoting: Getting system information."
         Get-BrokenPSSessions 'SystemInformation'
 
-        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-ComputerInfo} |
+        $CompInfo = Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-ComputerInfo}
+        $CompInfo |
             Select-Object PSComputerName,
                           WindowsCurrentVersion,
                           WindowsEditionId,
@@ -1192,10 +1229,29 @@ function Collect-RemoteSystemData {
                           PowerPlatformRole |
             Export-Csv -Path system_info.csv -Append -NoTypeInformation
 
+<#
+        Write-Output "Extracting: System hot fix information."
 
+        foreach($comp in $CompInfo) {
+            ($comp).OsHotFixes | 
+                ForEach-Object {
+                    @{
+                        HotFixID    = $_.HotFixID
+                        Description = $_.Description
+                        InstalledOn = $_.InstalledOn
+                    }
+                } |
+                Select-Object @{Name='PSComputerName'; Expression={$comp.PSComputerName}},
+                              @{Name='HotFixID'; Expression={$_.HotFixID}},
+                              @{Name='Description'; Expression={$_.Description}},
+                              @{Name='InstalledOn'; Expression={$_.InstalledOn}} | 
+                Export-Csv -Path hotfixes_test.csv -Append -NoTypeInformation
+        }
+
+#>
         # System hot fix information
         Write-Output "Remoting: Getting system hot fix information."
-        Get-BrokenPSSessions 'SystemHotFix'
+        Get-BrokenPSSessions 'Sget-ystemHotFix'
     
         Invoke-Command -Session (Get-OpenPSSessions) `
                        -ScriptBlock {
@@ -1214,7 +1270,7 @@ function Collect-RemoteSystemData {
                           @{Name='InstalledOn'; Expression={$_.InstalledOn}} | 
             Export-Csv -Path hotfixes.csv -Append -NoTypeInformation
 
-    
+
         # BitLocker information
         Write-Output "Remoting: Getting BitLocker information."
         Get-BrokenPSSessions 'BitLocker'
@@ -1318,6 +1374,7 @@ function Collect-RemoteSystemData {
                           Description,
                           @{name='Used (GB)'; expression={[math]::Round($_.Used/1GB, 2)}},
                           @{name='Free (GB)'; expression={[math]::Round($_.Free/1GB, 2)}},
+                          @{name='Used (%)'; expression={[math]::Round($_.Used/($_.Used + $_.Free) * 100.0, 0)}},
                           DisplayRoot |
             Export-Csv -Path hard_drive_storage.csv -Append -NoTypeInformation
 
@@ -1348,9 +1405,6 @@ function Collect-RemoteSystemData {
 	        Select-Object PSComputerName,Name,AccountName,AccessControlType,AccessRight |
             Export-Csv -Path share_permissions.csv -Append -NoTypeInformation
 
-        Write-Output "Remoting: Removing PowerShell sessions."
-        Get-PSSession | Remove-PSSession
-
 
         # Downloads, Documents, and Desktop files
         Write-Output "Remoting: Getting Documents, Desktop, and Downloads file information."
@@ -1363,6 +1417,10 @@ function Collect-RemoteSystemData {
                        } |
 	        Select-Object PSComputerName,Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes |
             Export-Csv -Path files.csv -Append -NoTypeInformation
+
+
+        Write-Output "Remoting: Removing PowerShell sessions."
+        Get-PSSession | Remove-PSSession
     }
 }
 
@@ -1416,6 +1474,7 @@ function Collect-ServerFeatures {
             Select-Object PSComputerName,Name,DisplayName,Description,InstallState,Parent,Depth,Path,FeatureType |
 	        Export-Csv -Path windows_server_features.csv -Append -NoTypeInformation
 
+        Write-Output "Server: Removing PowerShell sessions."
         Get-PSSession | Remove-PSSession
     
     # server features local collection
