@@ -85,7 +85,7 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.50
+    Version 1.0.51
     Author: Sam Pursglove
     Last modified: 15 April 2025
 
@@ -397,6 +397,7 @@ function getPhysicalDiskInfo {
                       Size
 }
 
+
 function getScheduledTask {
 
     # GUID and SID regexs to remove any unique components in a scheduled task name
@@ -406,29 +407,23 @@ function getScheduledTask {
     $tasks = Get-ScheduledTask
 
     foreach($task in $tasks) {
-
+    
         # extract different fields depending on the action type
         if ($task.Actions -like "MSFT_TaskExecAction") {
-            $classId   = 'N/A'
-            $data      = 'N/A'
-            $execute   = $task.Actions.Execute
-            $arguments = $task.Actions.Arguments
+            $comClassId    = ''
+	    	$argumentsData = $task.Actions.Arguments
+            $execute       = $task.Actions.Execute
 
-            # escape a leading ( - ) sign for Excel viewing
-            if($arguments -match "^-") {
-                $arguments = "'$($arguments)"
-            }
-
+		# COM object class ID
         } elseif ($task.Actions -like "MSFT_TaskComHandlerAction") {
-            $execute   = 'N/A'
-            $arguments = 'N/A'
-            $classid   = $task.Actions.ClassID
-            $data      = $task.Actions.Data
+            $comClassId    = $task.Actions.ClassID
+            $argumentsData = $task.Actions.Data
+            $execute       = (Get-ChildItem "HKLM:\SOFTWARE\Classes\CLSID\$($comClassId)" -ErrorAction SilentlyContinue | Get-ItemProperty).'(default)'
+        }
 
-            # escape a leading ( - ) sign for Excel viewing
-            if($data -match "^-") {
-                $data = "'$($data)"
-            }
+        # escape a leading ( - ) sign for Excel viewing
+        if($argumentsData -match "^-") {
+            $argumentsData = "'$($argumentsData)"
         }
 
         # Remove unique components of scheduled task names so they can be compared across systems
@@ -443,17 +438,17 @@ function getScheduledTask {
         $taskInfo = Get-ScheduledTaskInfo -TaskName $task.URI
 
         @{
-            'TaskName'    = $taskName
-            'TaskPath'    = $task.TaskPath
-            'Author'      = $task.Author
-            'Description' = $task.Description
-            'Execute'     = $execute
-            'Arguments'   = $arguments
-            'ClassID'     = $classId
-            'Data'        = $data
-            'State'       = $task.State
-            'LastRunTime' = $taskInfo.LastRunTime
-            'NextRunTime' = $taskInfo.NextRunTime
+            'TaskName'       = $taskName
+            'TaskPath'       = $task.TaskPath
+            'Author'         = $task.Author
+            'Execute'        = $execute
+            'Arguments_Data' = $argumentsData
+            'ComClassID'     = $comClassId
+            'Data'           = $data
+            'State'          = $task.State
+            'LastRunTime'    = $taskInfo.LastRunTime
+            'NextRunTime'    = $taskInfo.NextRunTime
+            'Description'    = $task.Description
         }
     }
 }
@@ -588,19 +583,18 @@ function Collect-LocalSystemData {
 
     # Scheduled tasks
     Write-Output "Local: Getting scheduled tasks."
-    getScheduledTask |
+	getScheduledTask |
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
                       @{Name='TaskName'; Expression={$_.TaskName}},
                       @{Name='TaskPath'; Expression={$_.TaskPath}},
                       @{Name='State'; Expression={$_.State}},
                       @{Name='Author'; Expression={$_.Author}},
-                      @{Name='Description'; Expression={$_.Description}},
                       @{Name='Execute'; Expression={$_.Execute}},
-                      @{Name='Arguments'; Expression={$_.Arguments}},
-                      @{Name='ClassID'; Expression={$_.ClassID}},
-                      @{Name='Data'; Expression={$_.Data}},
+                      @{Name='Arguments_Data'; Expression={$_.Arguments_Data}},
+                      @{Name='ComClassID'; Expression={$_.ComClassID}},
                       @{Name='LastRunTime'; Expression={$_.LastRunTime}},
-                      @{Name='NextRunTime'; Expression={$_.NextRunTime}} |
+                      @{Name='NextRunTime'; Expression={$_.NextRunTime}},
+                      @{Name='Description'; Expression={$_.Description}} |
 	    Export-Csv -Path scheduled_tasks.csv -Append -NoTypeInformation
 
 
@@ -1121,20 +1115,19 @@ function Collect-RemoteSystemData {
 
         #Invoke-Command -Session (Get-PSSession) -ScriptBlock ${function:getScheduledTask} |
         Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getScheduledTask} |
-            Select-Object PSComputerName,
-                          @{Name='TaskName'; Expression={$_.TaskName}},
-                          @{Name='TaskPath'; Expression={$_.TaskPath}},
-                          @{Name='State'; Expression={$_.State}},
-                          @{Name='Author'; Expression={$_.Author}},
-                          @{Name='Description'; Expression={$_.Description}},
-                          @{Name='Execute'; Expression={$_.Execute}},
-                          @{Name='Arguments'; Expression={$_.Arguments}},
-                          @{Name='ClassID'; Expression={$_.ClassID}},
-                          @{Name='Data'; Expression={$_.Data}},
-                          @{Name='LastRunTime'; Expression={$_.LastRunTime}},
-                          @{Name='NextRunTime'; Expression={$_.NextRunTime}} |
-	        Export-Csv -Path scheduled_tasks.csv -Append -NoTypeInformation
-
+        	Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
+                      @{Name='TaskName'; Expression={$_.TaskName}},
+                      @{Name='TaskPath'; Expression={$_.TaskPath}},
+                      @{Name='State'; Expression={$_.State}},
+                      @{Name='Author'; Expression={$_.Author}},
+                      @{Name='Execute'; Expression={$_.Execute}},
+                      @{Name='Arguments_Data'; Expression={$_.Arguments_Data}},
+                      @{Name='ComClassID'; Expression={$_.ComClassID}},
+                      @{Name='LastRunTime'; Expression={$_.LastRunTime}},
+                      @{Name='NextRunTime'; Expression={$_.NextRunTime}},
+                      @{Name='Description'; Expression={$_.Description}} |
+	    	Export-Csv -Path scheduled_tasks.csv -Append -NoTypeInformation
+			
 
         # Services
         Write-Output "Remoting: Getting services."
