@@ -85,9 +85,9 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.51
+    Version 1.0.52
     Author: Sam Pursglove
-    Last modified: 15 April 2025
+    Last modified: 24 April 2025
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -398,21 +398,62 @@ function getPhysicalDiskInfo {
 }
 
 
-function getScheduledTask {
+# Get scheduled task data including any applicable script options, the binary, and its hash.  Will look up the COM object class ID if necessary
+function getScheduledTasks {
 
     # GUID and SID regexs to remove any unique components in a scheduled task name
     $guidRegex = "([a-zA-Z0-9_. ]+)-?\{([0-9A-F]+-?){5}\}"
     $sidRegex  = "([a-zA-Z0-9_. ]+)((_|-)S-1-5-21)((-\d+){4})"
+    $scheduledTaskTracker = @{}    # dictionary to save file hashes to reduce hash calculations
 
     $tasks = Get-ScheduledTask
-
+    
     foreach($task in $tasks) {
+
+        $comClassId    = $null
+        $argumentsData = $null
+        $execute       = $null
+        $taskName      = $null
     
         # extract different fields depending on the action type
         if ($task.Actions -like "MSFT_TaskExecAction") {
-            $comClassId    = ''
 	    	$argumentsData = $task.Actions.Arguments
-            $execute       = $task.Actions.Execute
+            $execute       = $task.Actions.Execute | Sort-Object -Unique
+
+
+            # Format binary file paths so they can be hashed
+            # remove quotes from quoted file paths and any commandline args
+            if ($execute -match '^\"') {
+                $execute = $execute.Split('"')[1]
+            }
+
+            # add System Root var (e.g. C:\Windows\) to paths that start with %System32%
+            if ($execute -match "^%SystemRoot%") {
+                $execute = $execute -replace "%SystemRoot%",$env:SystemRoot
+            
+            # add Win Dir path (e.g. C:\Windows\) to paths that start with %windir%
+            } elseif ($execute -match "^%windir%") {
+                $execute = $execute -replace "%windir%",$env:windir
+            
+            # add Program Files path (e.g. C:\Program Files\) to paths that start with %ProgramFiles%
+            } elseif ($execute -match "^%ProgramFiles%") {
+                $execute = $execute -replace "%ProgramFiles%",$env:ProgramFiles
+            
+            # add Local AppData path (e.g. C:\Users\<user>\AppData\Local\) to paths that start with %localappdata%
+            } elseif ($execute -match "^%localappdata%") {
+                $execute = $execute -replace "%localappdata%",$env:LOCALAPPDATA
+            
+            # add the full path to an exe or dll file that is only the binary name
+            } elseif ($execute -match "^[a-zA-z]+\.dll$" -or $execute -match "^[a-zA-z]+\.exe$") {
+                $execute = "$($env:SystemRoot)\System32\$($execute)"
+            
+            # At least one scheduled task identified had no image path in the Execute file and
+            # instead had a GUID.  The image path was then located in the Author field though
+            # not in all cases.
+            } elseif ($execute -match "\{[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\}" -and $task.Author -like "*.dll*") {
+                $execute = ($task.Author -replace "\$\(@%systemroot%",$env:SystemRoot).Split(',')[0]
+            }
+
 
 		# COM object class ID
         } elseif ($task.Actions -like "MSFT_TaskComHandlerAction") {
@@ -426,7 +467,7 @@ function getScheduledTask {
             $argumentsData = "'$($argumentsData)"
         }
 
-        # Remove unique components of scheduled task names so they can be compared across systems
+        # Remove unique suffixes of applicable scheduled task names so they can be compared across systems
         if( $task.TaskName -match $guidRegex ) { 
             $taskName = $Matches[1]
         } elseif ($task.TaskName -match $sidRegex ) { 
@@ -436,21 +477,118 @@ function getScheduledTask {
         }
 
         $taskInfo = Get-ScheduledTaskInfo -TaskName $task.URI
+        
+
+        if($execute) {    
+            # hash local files only, not over the network
+            if($execute -notmatch "^\\\\") {
+                
+                # check dictionary for existing hashes or add new ones to it
+                if(-not $scheduledTaskTracker.ContainsKey($execute)) {
+                    $scheduledTaskTracker[$execute] = (Get-FileHash $execute -ErrorAction SilentlyContinue).Hash
+                }
+            }
+        }            
+        
 
         @{
-            'TaskName'       = $taskName
-            'TaskPath'       = $task.TaskPath
-            'Author'         = $task.Author
-            'Execute'        = $execute
-            'Arguments_Data' = $argumentsData
-            'ComClassID'     = $comClassId
-            'Data'           = $data
-            'State'          = $task.State
-            'LastRunTime'    = $taskInfo.LastRunTime
-            'NextRunTime'    = $taskInfo.NextRunTime
-            'Description'    = $task.Description
+            TaskName       = $taskName
+            TaskPath       = $task.TaskPath
+            Author         = $task.Author
+            Execute        = $execute
+            Hash           = if ($execute) {$scheduledTaskTracker[$execute]} else {}
+            Arguments_Data = $argumentsData
+            ComClassID     = $comClassId
+            Data           = $data
+            State          = $task.State
+            LastRunTime    = $taskInfo.LastRunTime
+            NextRunTime    = $taskInfo.NextRunTime
+            Description    = $task.Description
         }
     }
+}
+
+
+# Get services data including the applicable binary and its hash
+function getServices {
+    Get-Service | 
+        ForEach-Object {
+        
+            $ImagePath = $null
+            $ImageHash = $null
+            $data      = $null
+            $data = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\$($_.Name)" -Name ImagePath,Description -ErrorAction SilentlyContinue
+        
+            if ($data.ImagePath -notlike "*svchost.exe*") {
+            
+                # remove quotes from quoted file paths and any commandline args
+                if ($data.ImagePath -match '^\"') {
+                    $ImagePath = $data.ImagePath.Split('"')[1]
+        
+                # remove any commandline args
+                } elseif ($data.ImagePath -match "^C:\\Windows\\") {   
+                    $ImagePath = $data.ImagePath.Split(' ')[0]
+        
+                # replace \SystemRoot var (e.g. C:\Windows)
+                } elseif ($data.ImagePath -match "^\\SystemRoot") {  
+                    $ImagePath = $data.ImagePath -replace "\\SystemRoot",$env:SystemRoot
+        
+                # add System Root var (e.g. C:\Windows\) to paths that start with System32
+                } elseif ($data.ImagePath -match "^System32") {  
+                    $ImagePath = "$($env:SystemRoot)\$($data.ImagePath)"
+        
+                # remove \??\ if that's the starting path
+                } elseif ($data.ImagePath -match "^\\\?\?\\") {   
+                    $ImagePath = $data.ImagePath -replace "\\\?\?\\",""
+                }
+            
+                $SvcHost = 'False'
+
+            } else {
+            
+                # add System Root var (e.g. C:\Windows\) to paths that start with @%System32%
+                if ($data.Description -match "^@%SystemRoot%") {
+                    $ImagePath = ($data.Description -replace "@%SystemRoot%",$env:SystemRoot).Split(',')[0]
+                
+                # add Win Dir path (e.g. C:\Windows\) to paths that start with @%windir%
+                } elseif ($data.Description -match "^@%windir%") {
+                    $ImagePath = ($data.Description -replace "@%windir%",$env:windir).Split(',')[0]
+            
+                # for a full path dll prefixed with an @ only, remove it
+                } elseif ($data.Description -match "^@[a-zA-z]:\\") {
+                    $ImagePath = ($data.Description -replace "@","").Split(',')[0]
+            
+                # add the full path to a dll file listing that starts with @
+                } elseif ($data.Description -match "^@[a-zA-z]+\.dll") {
+                    $ImagePath = ($data.Description -replace "@","$env:SystemRoot\System32\").Split(',')[0]
+            
+                # output the image path as is    
+                } else {
+                    $ImagePath = $data.Description
+                }
+
+                $SvcHost = 'True'
+            }
+
+            # hash the service binary
+            if ($ImagePath) {
+                $ImageHash = (Get-FileHash $ImagePath -ErrorAction SilentlyContinue).Hash
+            }
+
+            @{
+                Name                = $_.Name
+                DisplayName         = $_.DisplayName
+                Status              = $_.Status
+                StartType           = $_.StartType
+                ImagePath           = $ImagePath
+                ImageHash           = $ImageHash
+                Svchost             = $Svchost
+                CanPauseAndContinue = $_.CanPauseAndContinue
+                CanShutdown         = $_.CanShutdown
+                CanStop             = $_.CanStop
+                ServiceType         = $_.ServiceType
+            }
+        }
 }
 
 
@@ -583,13 +721,14 @@ function Collect-LocalSystemData {
 
     # Scheduled tasks
     Write-Output "Local: Getting scheduled tasks."
-	getScheduledTask |
+	getScheduledTasks |
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
                       @{Name='TaskName'; Expression={$_.TaskName}},
                       @{Name='TaskPath'; Expression={$_.TaskPath}},
                       @{Name='State'; Expression={$_.State}},
                       @{Name='Author'; Expression={$_.Author}},
                       @{Name='Execute'; Expression={$_.Execute}},
+                      @{Name='Hash'; Expression={$_.Hash}},
                       @{Name='Arguments_Data'; Expression={$_.Arguments_Data}},
                       @{Name='ComClassID'; Expression={$_.ComClassID}},
                       @{Name='LastRunTime'; Expression={$_.LastRunTime}},
@@ -600,14 +739,20 @@ function Collect-LocalSystemData {
 
     # Services
     Write-Output "Local: Getting services."
-    Get-Service |
+    getServices |
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
-                      @{Name='Name'; Expression={$_.Name.Split('_')[0]}}, # remove unique service name suffix
-                      @{Name='DisplayName'; Expression={$_.DisplayName.Split('_')[0]}}, # remove unique service display name suffix
-                      Status,
-                      StartType,
-                      ServiceType |
-	    Export-Csv -Path services.csv -Append -NoTypeInformation
+                      @{name='Name'; expression={$_.Name}},
+                      @{name='DisplayName'; expression={$_.DisplayName}},
+                      @{name='Status'; expression={$_.Status}},
+                      @{name='StartType'; expression={$_.StartType}},
+                      @{name='ImagePath'; expression={$_.ImagePath}},
+                      @{name='ImageHash'; expression={$_.ImageHash}},
+                      @{name='Svchost'; expression={$_.Svchost}},
+                      @{name='CanPauseAndContinue'; expression={$_.CanPauseAndContinue}},
+                      @{name='CanShutdown'; expression={$_.CanShutdown}},
+                      @{name='CanStop'; expression={$_.CanStop}},
+                      @{name='ServiceType'; expression={$_.ServiceType}} |
+        Export-Csv -Path services.csv -Append -NoTypeInformation
 
 
     # Network connections
@@ -688,7 +833,7 @@ function Collect-LocalSystemData {
     # BitLocker information
     Write-Output "Local: Getting BitLocker information."
     if(Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue) {
-        Get-BitLockerVolume |
+        Get-BitLockerVolume -ErrorAction SilentlyContinue |
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
                       MountPoint,
                       EncryptionMethod,
@@ -712,7 +857,7 @@ function Collect-LocalSystemData {
 
     # Antimalware software information
     Write-Output "Local: Getting antimalware software information."
-    Get-MpComputerStatus |
+    Get-MpComputerStatus -ErrorAction SilentlyContinue |
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
                       AMEngineVersion,
                       AMProductVersion,
@@ -992,10 +1137,24 @@ function Collect-RemoteSystemData {
 
         # Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
         Write-Output "Remoting: Creating PowerShell sessions (Systems: $($compsLow + 1) - $($compsHigh + 1) of $($computers.Count))."
+        
         if($SystemList) {
             New-PSSession -ComputerName $computers[$compsLow..$compsHigh] -SessionOption $sessionOpt -ErrorAction SilentlyContinue | Out-Null # Create reusable PS Sessions
         } else {
             New-PSSession -ComputerName $computers[$compsLow..$compsHigh].Name -SessionOption $sessionOpt -ErrorAction SilentlyContinue | Out-Null # Create reusable PS Sessions
+        }
+
+
+        # Display the total number of PS sessions created
+        $totalSessions = (Get-PSSession).Count
+        
+        if($totalSessions -eq 0) {
+            Write-Output "Remoting: $totalSessions PowerShell sessions created, exiting."
+            exit
+        } elseif($totalSessions -eq 1) {
+            Write-Output "Remoting: $totalSessions PowerShell session created."
+        } else {
+            Write-Output "Remoting: $totalSessions PowerShell sessions created."
         }
 
 
@@ -1073,6 +1232,7 @@ function Collect-RemoteSystemData {
             Select-Object PSComputerName,Name,Id,Path,Hash,UserName,Company,Description,ProductVersion,StartTime |
 	        Export-Csv -Path processes.csv -Append -NoTypeInformation
 
+
         # Modules
         Write-Output "Remoting: Getting process modules."
         Get-BrokenPSSessions 'Modules'
@@ -1100,27 +1260,28 @@ function Collect-RemoteSystemData {
                                     }
                                 }
                             }
-                       } | Select-Object @{Name='PSComputerName'; Expression={$_.PSComputerName}},
-                                         @{Name='ProcessName'; Expression={$_.ProcessName}},
-                                         @{Name='PID'; Expression={$_.PID}},
-                                         @{Name='Name'; Expression={$_.Name}},
-                                         @{Name='Path'; Expression={$_.Path}},
-                                         @{Name='Hash'; Expression={$_.Hash}} |
-	                            Export-Csv -Path modules.csv -Append -NoTypeInformation
+                       } | 
+            Select-Object PSComputerName,
+                    @{Name='ProcessName'; Expression={$_.ProcessName}},
+                    @{Name='PID'; Expression={$_.PID}},
+                    @{Name='Name'; Expression={$_.Name}},
+                    @{Name='Path'; Expression={$_.Path}},
+                    @{Name='Hash'; Expression={$_.Hash}} |
+	        Export-Csv -Path modules.csv -Append -NoTypeInformation
 
 
         # Scheduled tasks
         Write-Output "Remoting: Getting scheduled tasks."
         Get-BrokenPSSessions 'ScheduledTask'
 
-        #Invoke-Command -Session (Get-PSSession) -ScriptBlock ${function:getScheduledTask} |
-        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getScheduledTask} |
-        	Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
+        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getScheduledTasks} |
+        	Select-Object PSComputerName,
                       @{Name='TaskName'; Expression={$_.TaskName}},
                       @{Name='TaskPath'; Expression={$_.TaskPath}},
                       @{Name='State'; Expression={$_.State}},
                       @{Name='Author'; Expression={$_.Author}},
                       @{Name='Execute'; Expression={$_.Execute}},
+                      @{Name='Hash'; Expression={$_.Hash}},
                       @{Name='Arguments_Data'; Expression={$_.Arguments_Data}},
                       @{Name='ComClassID'; Expression={$_.ComClassID}},
                       @{Name='LastRunTime'; Expression={$_.LastRunTime}},
@@ -1133,16 +1294,19 @@ function Collect-RemoteSystemData {
         Write-Output "Remoting: Getting services."
         Get-BrokenPSSessions 'Services'
 
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ScriptBlock {
-                            Get-Service | 
-                            Select-Object @{Name='Name'; Expression={$_.Name.Split('_')[0]}}, # remove unique service name suffix
-                                          @{Name='DisplayName'; Expression={$_.DisplayName.Split('_')[0]}}, # remove unique service display name suffix
-                                          Status,
-                                          StartType,
-                                          ServiceType
-                       } |
-            Select-Object PSComputerName,Name,DisplayName,Status,StartType,ServiceType |
+        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getServices} |
+            Select-Object PSComputerName,
+                      @{name='Name'; expression={$_.Name}},
+                      @{name='DisplayName'; expression={$_.DisplayName}},
+                      @{name='Status'; expression={$_.Status}},
+                      @{name='StartType'; expression={$_.StartType}},
+                      @{name='ImagePath'; expression={$_.ImagePath}},
+                      @{name='ImageHash'; expression={$_.ImageHash}},
+                      @{name='Svchost'; expression={$_.Svchost}},
+                      @{name='CanPauseAndContinue'; expression={$_.CanPauseAndContinue}},
+                      @{name='CanShutdown'; expression={$_.CanShutdown}},
+                      @{name='CanStop'; expression={$_.CanStop}},
+                      @{name='ServiceType'; expression={$_.ServiceType}} |
             Export-Csv -Path services.csv -Append -NoTypeInformation
 
 
@@ -1185,8 +1349,7 @@ function Collect-RemoteSystemData {
         Write-Output "Remoting: Getting system information."
         Get-BrokenPSSessions 'SystemInformation'
 
-        $CompInfo = Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-ComputerInfo}
-        $CompInfo |
+        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-ComputerInfo -ErrorAction SilentlyContinue} |
             Select-Object PSComputerName,
                           WindowsCurrentVersion,
                           WindowsEditionId,
@@ -1222,29 +1385,10 @@ function Collect-RemoteSystemData {
                           PowerPlatformRole |
             Export-Csv -Path system_info.csv -Append -NoTypeInformation
 
-<#
-        Write-Output "Extracting: System hot fix information."
 
-        foreach($comp in $CompInfo) {
-            ($comp).OsHotFixes | 
-                ForEach-Object {
-                    @{
-                        HotFixID    = $_.HotFixID
-                        Description = $_.Description
-                        InstalledOn = $_.InstalledOn
-                    }
-                } |
-                Select-Object @{Name='PSComputerName'; Expression={$comp.PSComputerName}},
-                              @{Name='HotFixID'; Expression={$_.HotFixID}},
-                              @{Name='Description'; Expression={$_.Description}},
-                              @{Name='InstalledOn'; Expression={$_.InstalledOn}} | 
-                Export-Csv -Path hotfixes_test.csv -Append -NoTypeInformation
-        }
-
-#>
         # System hot fix information
         Write-Output "Remoting: Getting system hot fix information."
-        Get-BrokenPSSessions 'Sget-ystemHotFix'
+        Get-BrokenPSSessions 'SystemHotFix'
     
         Invoke-Command -Session (Get-OpenPSSessions) `
                        -ScriptBlock {
@@ -1268,7 +1412,7 @@ function Collect-RemoteSystemData {
         Write-Output "Remoting: Getting BitLocker information."
         Get-BrokenPSSessions 'BitLocker'
 
-        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {if(Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue) {Get-BitLockerVolume} } |
+        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {if(Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue) {Get-BitLockerVolume -ErrorAction SilentlyContinue} } |
             Select-Object PSComputerName,
                           MountPoint,
                           EncryptionMethod,
@@ -1290,7 +1434,7 @@ function Collect-RemoteSystemData {
         Write-Output "Remoting: Getting antimalware software information."
         Get-BrokenPSSessions 'Antimalware'
         
-        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-MpComputerStatus} |
+        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-MpComputerStatus -ErrorAction SilentlyContinue} |
             Select-Object PSComputerName,
                           AMEngineVersion,
                           AMProductVersion,
