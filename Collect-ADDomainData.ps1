@@ -85,9 +85,9 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.52
+    Version 1.0.53
     Author: Sam Pursglove
-    Last modified: 24 April 2025
+    Last modified: 06 May 2025
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -953,7 +953,7 @@ function Collect-LocalSystemData {
     # Downloads, Documents, and Desktop files
     Write-Output "Local: Getting Documents, Desktop, and Downloads file information."
     Get-ChildItem -Path 'C:\Users\*\Downloads\','C:\Users\*\Documents\','C:\Users\*\Desktop\' -Recurse |
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes |
+        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Directory,Name,Extension,CreationTime,LastAccessTime,LastWriteTime,Attributes |
 	    Export-Csv -Path files.csv -Append -NoTypeInformation
 
 }
@@ -1550,9 +1550,9 @@ function Collect-RemoteSystemData {
         Invoke-Command -Session (Get-OpenPSSessions) `
                        -ScriptBlock {
                             Get-ChildItem -Path 'C:\Users\*\Downloads\','C:\Users\*\Documents\','C:\Users\*\Desktop\' -Recurse -ErrorAction SilentlyContinue | 
-                            Select-Object Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes
+                            Select-Object Directory,Name,Extension,CreationTime,LastAccessTime,LastWriteTime,Attributes
                        } |
-	        Select-Object PSComputerName,Name,Extension,Directory,CreationTime,LastAccessTime,LastWriteTime,Attributes |
+	        Select-Object PSComputerName,Directory,Name,Extension,CreationTime,LastAccessTime,LastWriteTime,Attributes |
             Export-Csv -Path files.csv -Append -NoTypeInformation
 
 
