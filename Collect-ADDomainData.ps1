@@ -85,7 +85,7 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.54
+    Version 1.0.55
     Author: Sam Pursglove
     Last modified: 21 May 2025
 
@@ -576,8 +576,8 @@ function getServices {
             }
 
             @{
-                Name                = $_.Name
-                DisplayName         = $_.DisplayName
+                Name                = $_.Name.Split('_')[0]
+                DisplayName         = $_.DisplayName.Split('_')[0]
                 Status              = $_.Status
                 StartType           = $_.StartType
                 ImagePath           = $ImagePath
