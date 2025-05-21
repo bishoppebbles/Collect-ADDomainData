@@ -85,9 +85,9 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.53
+    Version 1.0.54
     Author: Sam Pursglove
-    Last modified: 06 May 2025
+    Last modified: 21 May 2025
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -1115,12 +1115,16 @@ function Collect-RemoteSystemData {
     # the number of PS sessions at one time helped improve collection success, it actually was worse
     # and much slower.  However, I'm still keeping this code as an option but by default it will 
     # run 100% of possible PS sessions.
-    $compsMax = $computers.Count
+    
+    # need this check as the Count property only exists for an array, if just a single value is returned then it fails
+    $compsMax = ($computers | Measure-Object).Count
+            
     
     if($PSRemotingLimit -gt 0) {
         $compsInc = $PSRemotingLimit
     } else {
-        $compsInc = $computers.Count
+        # need this check as the Count property only exists for an array, if just a single value is returned then it fails
+        $compsInc = ($computers | Measure-Object).Count
     }    
     
     $compsLow = 0
@@ -1136,17 +1140,21 @@ function Collect-RemoteSystemData {
         }
 
         # Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
-        Write-Output "Remoting: Creating PowerShell sessions (Systems: $($compsLow + 1) - $($compsHigh + 1) of $($computers.Count))."
+        Write-Output "Remoting: Creating PowerShell sessions (Systems: $($compsLow + 1) - $($compsHigh + 1) of $(($computers | Measure-Object).Count))."
         
         if($SystemList) {
             New-PSSession -ComputerName $computers[$compsLow..$compsHigh] -SessionOption $sessionOpt -ErrorAction SilentlyContinue | Out-Null # Create reusable PS Sessions
         } else {
-            New-PSSession -ComputerName $computers[$compsLow..$compsHigh].Name -SessionOption $sessionOpt -ErrorAction SilentlyContinue | Out-Null # Create reusable PS Sessions
+            if($compsInc -ne 1) {
+                New-PSSession -ComputerName $computers[$compsLow..$compsHigh].Name -SessionOption $sessionOpt -ErrorAction SilentlyContinue | Out-Null # Create reusable PS Sessions
+            } else {
+                New-PSSession -ComputerName $computers.Name -SessionOption $sessionOpt -ErrorAction SilentlyContinue | Out-Null # Create reusable PS Sessions
+            }
         }
 
 
         # Display the total number of PS sessions created
-        $totalSessions = (Get-PSSession).Count
+        $totalSessions = (Get-PSSession | Measure-Object).Count
         
         if($totalSessions -eq 0) {
             Write-Output "Remoting: $totalSessions PowerShell sessions created, exiting."
@@ -1166,9 +1174,15 @@ function Collect-RemoteSystemData {
         
         # Determine the systems where PS remoting failed for systems that were gathered from Active Directory
         } else {
-            Get-FailedWinRMSessions $computers[$compsLow..$compsHigh].Name | 
-                Select-Object Name,@{Name='Failure'; Expression={'WinRM'}} |
-                Export-Csv -Path failed_collection.csv -Append -NoTypeInformation
+            if($compsInc -ne 1) {
+                Get-FailedWinRMSessions $computers[$compsLow..$compsHigh].Name | 
+                    Select-Object Name,@{Name='Failure'; Expression={'WinRM'}} |
+                    Export-Csv -Path failed_collection.csv -Append -NoTypeInformation
+            } else {
+                Get-FailedWinRMSessions $computers.Name | 
+                    Select-Object Name,@{Name='Failure'; Expression={'WinRM'}} |
+                    Export-Csv -Path failed_collection.csv -Append -NoTypeInformation
+            }
         }
 
         # increment the range for the next batch of systems
