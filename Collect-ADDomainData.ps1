@@ -85,9 +85,9 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.55
+    Version 1.0.56
     Author: Sam Pursglove
-    Last modified: 21 May 2025
+    Last modified: 17 July 2025
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -603,8 +603,10 @@ function Get-FailedWinRMSessions {
     $comps | 
         ForEach-Object {$compSessions.Add($_, $false)}
     
-    (Get-PSSession).ComputerName | 
-        ForEach-Object {$compSessions[$_] = $true}
+    if((Get-PSSession | Measure-Object).Count -gt 0) {
+        (Get-PSSession).ComputerName | 
+            ForEach-Object {$compSessions[$_] = $true}
+    }
     
     $compSessions.GetEnumerator().Where({$_.Value -eq $false})
 }
@@ -1153,19 +1155,6 @@ function Collect-RemoteSystemData {
         }
 
 
-        # Display the total number of PS sessions created
-        $totalSessions = (Get-PSSession | Measure-Object).Count
-        
-        if($totalSessions -eq 0) {
-            Write-Output "Remoting: $totalSessions PowerShell sessions created, exiting."
-            exit
-        } elseif($totalSessions -eq 1) {
-            Write-Output "Remoting: $totalSessions PowerShell session created."
-        } else {
-            Write-Output "Remoting: $totalSessions PowerShell sessions created."
-        }
-
-
         # Determine the systems where PS remoting failed for a user supplied list of targets
         if($SystemList) {
             Get-FailedWinRMSessions $computers[$compsLow..$compsHigh] | 
@@ -1184,6 +1173,21 @@ function Collect-RemoteSystemData {
                     Export-Csv -Path failed_collection.csv -Append -NoTypeInformation
             }
         }
+
+
+        # Display the total number of PS sessions created
+        $totalSessions = (Get-PSSession | Measure-Object).Count
+        
+        if($totalSessions -eq 0) {
+            Write-Output "Remoting: $totalSessions PowerShell sessions created, exiting."
+            exit
+        } elseif($totalSessions -eq 1) {
+            Write-Output "Remoting: $totalSessions PowerShell session created."
+        } else {
+            Write-Output "Remoting: $totalSessions PowerShell sessions created."
+        }
+
+
 
         # increment the range for the next batch of systems
         $compsLow += $compsInc
