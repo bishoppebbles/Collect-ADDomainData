@@ -33,6 +33,8 @@
     Try to collection systems that previously failed the WinRM connection attempt.
 .PARAMETER SystemList
     The list of fully qualified domain systems to collect.  Note that this option does not export system data to the domain_computers.csv dataset as it is unavailable.
+.PARAMETER IncludeModules
+    Collect process module data and hash the related image files.  Added as an option as the collection can be very slow in large environments.
 .EXAMPLE
     .\Collect-ADDomainData.ps1
     Collects datasets for domain systems using the AD domain distinguished name of the script host.
@@ -85,9 +87,9 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.56
+    Version 1.0.57
     Author: Sam Pursglove
-    Last modified: 17 July 2025
+    Last modified: 05 November 2025
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -141,14 +143,20 @@ param (
     [Parameter(ParameterSetName='ListServerFeature', Mandatory=$True, ValueFromPipeline=$False, HelpMessage="Enter the list of fully qualified domain name systems (e.g. 'svr1.domain.com','svr2.domain.com')")]
     [string[]]$SystemList = '',
 
-    [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Limit the number of active PowerShell Remoting sessions.')]
-    [Parameter(ParameterSetName='Migrated', Mandatory=$False, HelpMessage='Limit the number of active PowerShell Remoting sessions.')]
-    [Parameter(ParameterSetName='List', Mandatory=$False, HelpMessage='Limit the number of active PowerShell Remoting sessions.')]
+    [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Limit the number of active PowerShell Remoting sessions')]
+    [Parameter(ParameterSetName='Migrated', Mandatory=$False, HelpMessage='Limit the number of active PowerShell Remoting sessions')]
+    [Parameter(ParameterSetName='List', Mandatory=$False, HelpMessage='Limit the number of active PowerShell Remoting sessions')]
     [int]$PSRemotingLimit = 0,
 
     [Parameter(ParameterSetName='Local', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collects local system data, not domain systems')]
     [Parameter(ParameterSetName='LocalServerFeature', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collects local server features only')]
     [Switch]$LocalCollectionOnly,
+
+    [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Collect process module data and hashes')]
+    [Parameter(ParameterSetName='Migrated', Mandatory=$False, HelpMessage='Collect process module data and hashes')]
+    [Parameter(ParameterSetName='Local', Mandatory=$False, HelpMessage='Collect process module data and hashes')]
+    [Parameter(ParameterSetName='List', Mandatory=$False, HelpMessage='Collect process module data and hashes')]
+    [Switch]$IncludeModules,
     
     [Parameter(ParameterSetName='Domain', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect DHCP server scope and lease data')]
     [Parameter(ParameterSetName='Migrated', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect DHCP server scope and lease data')]
@@ -690,36 +698,37 @@ function Collect-LocalSystemData {
 	    Export-Csv -Path processes.csv -Append -NoTypeInformation
 
 
-    # Modules
-    Write-Output "Local: Getting process modules."
-    $modTracker = @{}
+    # Modules (not collected by default)
+    if ($IncludeModules) {
+        Write-Output "Local: Getting process modules."
+        $modTracker = @{}
 
-    $localProcesses | ForEach-Object {
-        $modules = $_.Modules
+        $localProcesses | ForEach-Object {
+            $modules = $_.Modules
 
-        foreach($mod in $modules) {
-            $modSplit = $mod.FileName.Split('\')
+            foreach($mod in $modules) {
+                $modSplit = $mod.FileName.Split('\')
 
-            if(-not $modTracker.ContainsKey($mod.FileName)) {
-                $modTracker[$mod.FileName] = (Get-FileHash $mod.FileName).Hash
-            }
+                if(-not $modTracker.ContainsKey($mod.FileName)) {
+                    $modTracker[$mod.FileName] = (Get-FileHash $mod.FileName).Hash
+                }
             
-            @{
-                ProcessName = $_.Name
-                PID         = $_.Id
-                Name        = $mod.ModuleName
-                Path        = ($modSplit[0..($modSplit.count - 2)] -join "\") + '\'
-                Hash        = $modTracker[$mod.FileName]
+                @{
+                    ProcessName = $_.Name
+                    PID         = $_.Id
+                    Name        = $mod.ModuleName
+                    Path        = ($modSplit[0..($modSplit.count - 2)] -join "\") + '\'
+                    Hash        = $modTracker[$mod.FileName]
+                }
             }
-        }
-    } | Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
-                      @{Name='ProcessName'; Expression={$_.ProcessName}},
-                      @{Name='PID'; Expression={$_.PID}},
-                      @{Name='Name'; Expression={$_.Name}},
-                      @{Name='Path'; Expression={$_.Path}},
-                      @{Name='Hash'; Expression={$_.Hash}} |
-	    Export-Csv -Path modules.csv -Append -NoTypeInformation
-
+        } | Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
+                          @{Name='ProcessName'; Expression={$_.ProcessName}},
+                          @{Name='PID'; Expression={$_.PID}},
+                          @{Name='Name'; Expression={$_.Name}},
+                          @{Name='Path'; Expression={$_.Path}},
+                          @{Name='Hash'; Expression={$_.Hash}} |
+	        Export-Csv -Path modules.csv -Append -NoTypeInformation
+    }
 
     # Scheduled tasks
     Write-Output "Local: Getting scheduled tasks."
@@ -1251,42 +1260,43 @@ function Collect-RemoteSystemData {
 	        Export-Csv -Path processes.csv -Append -NoTypeInformation
 
 
-        # Modules
-        Write-Output "Remoting: Getting process modules."
-        Get-BrokenPSSessions 'Modules'
+        # Modules (not included by default)
+        if ($IncludeModules) {
+            Write-Output "Remoting: Getting process modules."
+            Get-BrokenPSSessions 'Modules'
 
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ScriptBlock {
-                            $modTracker = @{}
+            Invoke-Command -Session (Get-OpenPSSessions) `
+                           -ScriptBlock {
+                                $modTracker = @{}
 
-                            Get-Process -ErrorAction SilentlyContinue | ForEach-Object {
-                                $modules = $_.Modules
+                                Get-Process -ErrorAction SilentlyContinue | ForEach-Object {
+                                    $modules = $_.Modules
 
-                                foreach($mod in $modules) {
-                                    $modSplit = $mod.FileName.Split('\')
+                                    foreach($mod in $modules) {
+                                        $modSplit = $mod.FileName.Split('\')
 
-                                    if(-not $modTracker.ContainsKey($mod.FileName)) {
-                                        $modTracker[$mod.FileName] = (Get-FileHash $mod.FileName).Hash
-                                    }
+                                        if(-not $modTracker.ContainsKey($mod.FileName)) {
+                                            $modTracker[$mod.FileName] = (Get-FileHash $mod.FileName).Hash
+                                        }
             
-                                    @{
-                                        ProcessName = $_.Name
-                                        PID         = $_.Id
-                                        Name        = $mod.ModuleName
-                                        Path        = ($modSplit[0..($modSplit.count - 2)] -join "\") + '\'
-                                        Hash        = $modTracker[$mod.FileName]
+                                        @{
+                                            ProcessName = $_.Name
+                                            PID         = $_.Id
+                                            Name        = $mod.ModuleName
+                                            Path        = ($modSplit[0..($modSplit.count - 2)] -join "\") + '\'
+                                            Hash        = $modTracker[$mod.FileName]
+                                        }
                                     }
                                 }
-                            }
-                       } | 
-            Select-Object PSComputerName,
-                    @{Name='ProcessName'; Expression={$_.ProcessName}},
-                    @{Name='PID'; Expression={$_.PID}},
-                    @{Name='Name'; Expression={$_.Name}},
-                    @{Name='Path'; Expression={$_.Path}},
-                    @{Name='Hash'; Expression={$_.Hash}} |
-	        Export-Csv -Path modules.csv -Append -NoTypeInformation
-
+                           } | 
+                Select-Object PSComputerName,
+                        @{Name='ProcessName'; Expression={$_.ProcessName}},
+                        @{Name='PID'; Expression={$_.PID}},
+                        @{Name='Name'; Expression={$_.Name}},
+                        @{Name='Path'; Expression={$_.Path}},
+                        @{Name='Hash'; Expression={$_.Hash}} |
+	            Export-Csv -Path modules.csv -Append -NoTypeInformation
+        }
 
         # Scheduled tasks
         Write-Output "Remoting: Getting scheduled tasks."
