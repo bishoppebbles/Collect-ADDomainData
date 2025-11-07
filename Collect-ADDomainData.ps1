@@ -13,8 +13,16 @@
     The top level distinguished name path to use for computer object searching.
 .PARAMETER Server
     The server to use for the target domain.
+.PARAMETER SystemList
+    The list of fully qualified domain systems to collect.  Note that this option does not export system data to the domain_computers.csv dataset as it is unavailable.
 .PARAMETER PSRemotingLimit
     Limit the number of active PowerShell Remoting sessions.
+.PARAMETER LocalCollectionOnly
+    Collect the datasets on the local system (does not use PowerShell remoting functionality).
+.PARAMETER IncludeModules
+    Collect process module data and hash the related image files.  Added as an option as the collection can be very slow in large environments.
+.PARAMETER AltSmartCardCred
+    An option to use alternate smart card credentials for PowerShell remoting sessions.
 .PARAMETER DHCPServer
     Specify the server name if collecting Windows DHCP server scope and lease information with other domain data.
 .PARAMETER IncludeServerFeatures
@@ -27,14 +35,8 @@
     Only collect installed Windows Server feature and role information.
 .PARAMETER ActiveDirectoryOnly
     Only collect AD database user object and group membership information.
-.PARAMETER LocalCollectionOnly
-    Collect the datasets on the local system (does not use PowerShell remoting functionality).
 .PARAMETER FailedWinRM
     Try to collection systems that previously failed the WinRM connection attempt.
-.PARAMETER SystemList
-    The list of fully qualified domain systems to collect.  Note that this option does not export system data to the domain_computers.csv dataset as it is unavailable.
-.PARAMETER IncludeModules
-    Collect process module data and hash the related image files.  Added as an option as the collection can be very slow in large environments.
 .EXAMPLE
     .\Collect-ADDomainData.ps1
     Collects datasets for domain systems using the AD domain distinguished name of the script host.
@@ -87,7 +89,7 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.58
+    Version 1.0.59
     Author: Sam Pursglove
     Last modified: 07 November 2025
 
@@ -160,6 +162,11 @@ param (
     [Parameter(ParameterSetName='Local', Mandatory=$False, HelpMessage='Collect process module data and hashes')]
     [Parameter(ParameterSetName='List', Mandatory=$False, HelpMessage='Collect process module data and hashes')]
     [Switch]$IncludeModules,
+
+    [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Use alternate, non-default smart card credentials')]
+    [Parameter(ParameterSetName='Migrated', Mandatory=$False, HelpMessage='Use alternate, non-default smart card credentials')]
+    [Parameter(ParameterSetName='List', Mandatory=$False, HelpMessage='Use alternate, non-default smart card credentials')]
+    [Switch]$AltSmartCardCred,
     
     [Parameter(ParameterSetName='Domain', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect DHCP server scope and lease data')]
     [Parameter(ParameterSetName='Migrated', Mandatory=$False, ValueFromPipeline=$False, HelpMessage='Collect DHCP server scope and lease data')]
@@ -1278,7 +1285,18 @@ function Collect-RemoteSystemData {
     } else {
         # need this check as the Count property only exists for an array, if just a single value is returned then it fails
         $compsInc = ($computers | Measure-Object).Count
-    }    
+    }
+
+    # New-PSSession paramters
+    $sessArgs = @{
+        SessionOption = $sessionOpt
+        ErrorAction   = 'SilentlyContinue'
+    }
+
+    # Check if alternate PS remoting smart card credentials should be used
+    if($AltSmartCardCred) {
+        $sessArgs['Credential'] = Get-SmartCardCred
+    }
     
     $compsLow = 0
     $compsHigh = $compsInc - 1
@@ -1296,15 +1314,17 @@ function Collect-RemoteSystemData {
         Write-Output "Remoting: Creating PowerShell sessions (Systems: $($compsLow + 1) - $($compsHigh + 1) of $(($computers | Measure-Object).Count))."
         
         if($SystemList) {
-            New-PSSession -ComputerName $computers[$compsLow..$compsHigh] -SessionOption $sessionOpt -ErrorAction SilentlyContinue | Out-Null # Create reusable PS Sessions
+            $sessArgs['ComputerName'] = $computers[$compsLow..$compsHigh]
         } else {
             if($compsInc -ne 1) {
-                New-PSSession -ComputerName $computers[$compsLow..$compsHigh].DNSHostName -SessionOption $sessionOpt -ErrorAction SilentlyContinue | Out-Null # Create reusable PS Sessions
+                $sessArgs['ComputerName'] = $computers[$compsLow..$compsHigh].DNSHostName
             } else {
-                New-PSSession -ComputerName $computers.DNSHostName -SessionOption $sessionOpt -ErrorAction SilentlyContinue | Out-Null # Create reusable PS Sessions
+                $sessArgs['ComputerName'] = $computers.DNSHostName
             }
         }
 
+        # Create reusable PS Sessions
+        New-PSSession @sessArgs | Out-Null
 
         # Determine the systems where PS remoting failed for a user supplied list of targets
         if($SystemList) {
