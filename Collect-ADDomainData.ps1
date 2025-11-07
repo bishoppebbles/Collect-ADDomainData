@@ -87,11 +87,14 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.57
+    Version 1.0.58
     Author: Sam Pursglove
-    Last modified: 05 November 2025
+    Last modified: 07 November 2025
 
     FakeHyena name credit goes to Kennon Lee.
+
+    Certificate credential function credit goes to Joshua Chase with C# code used from https://github.com/bongiovimatthew-microsoft/pscredentialWithCert
+
 
     **Steps to enable PS Remoting via Group Policy**
 
@@ -1088,6 +1091,145 @@ function Try-FailedWinRM {
 }
 
 
+Function Get-SmartCardCred{
+<#
+.SYNOPSIS
+Get certificate credentials from the user's certificate store.
+
+.DESCRIPTION
+Returns a PSCredential object of the user's selected certificate.
+
+.EXAMPLE
+Get-SmartCardCred
+UserName                                           Password
+--------                                           --------
+@@BVkEYkWiqJgd2d9xz3-5BiHs1cAN System.Security.SecureString
+
+.EXAMPLE
+$Cred = Get-SmartCardCred
+
+.OUTPUTS
+[System.Management.Automation.PSCredential]
+
+.NOTES
+Author: Joshua Chase
+Last Modified: 01 August 2018
+C# code used from https://github.com/bongiovimatthew-microsoft/pscredentialWithCert
+#>
+    [cmdletbinding()]
+    param()
+
+    $SmartCardCode = @"
+    // Copyright (c) Microsoft Corporation. All rights reserved.
+    // Licensed under the MIT License.
+
+    using System;
+    using System.Management.Automation;
+    using System.Runtime.InteropServices;
+    using System.Security;
+    using System.Security.Cryptography.X509Certificates;
+
+    namespace SmartCardLogon{
+
+        static class NativeMethods
+        {
+
+            public enum CRED_MARSHAL_TYPE
+            {
+                CertCredential = 1,
+                UsernameTargetCredential
+            }
+
+            [StructLayout(LayoutKind.Sequential)]
+            internal struct CERT_CREDENTIAL_INFO
+            {
+                public uint cbSize;
+                [MarshalAs(UnmanagedType.ByValArray, SizeConst = 20)]
+                public byte[] rgbHashOfCert;
+            }
+
+            [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+            public static extern bool CredMarshalCredential(
+                CRED_MARSHAL_TYPE CredType,
+                IntPtr Credential,
+                out IntPtr MarshaledCredential
+            );
+
+            [DllImport("advapi32.dll", SetLastError = true)]
+            public static extern bool CredFree([In] IntPtr buffer);
+
+        }
+
+        public class Certificate
+        {
+
+            public static PSCredential MarshalFlow(string thumbprint, SecureString pin)
+            {
+                //
+                // Set up the data struct
+                //
+                NativeMethods.CERT_CREDENTIAL_INFO certInfo = new NativeMethods.CERT_CREDENTIAL_INFO();
+                certInfo.cbSize = (uint)Marshal.SizeOf(typeof(NativeMethods.CERT_CREDENTIAL_INFO));
+
+                //
+                // Locate the certificate in the certificate store 
+                //
+                X509Certificate2 certCredential = new X509Certificate2();
+                X509Store userMyStore = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+                userMyStore.Open(OpenFlags.ReadOnly);
+                X509Certificate2Collection certsReturned = userMyStore.Certificates.Find(X509FindType.FindByThumbprint, thumbprint, false);
+                userMyStore.Close();
+
+                if (certsReturned.Count == 0)
+                {
+                    throw new Exception("Unable to find the specified certificate.");
+                }
+
+                //
+                // Marshal the certificate 
+                //
+                certCredential = certsReturned[0];
+                certInfo.rgbHashOfCert = certCredential.GetCertHash();
+                int size = Marshal.SizeOf(certInfo);
+                IntPtr pCertInfo = Marshal.AllocHGlobal(size);
+                Marshal.StructureToPtr(certInfo, pCertInfo, false);
+                IntPtr marshaledCredential = IntPtr.Zero;
+                bool result = NativeMethods.CredMarshalCredential(NativeMethods.CRED_MARSHAL_TYPE.CertCredential, pCertInfo, out marshaledCredential);
+
+                string certBlobForUsername = null;
+                PSCredential psCreds = null;
+
+                if (result)
+                {
+                    certBlobForUsername = Marshal.PtrToStringUni(marshaledCredential);
+                    psCreds = new PSCredential(certBlobForUsername, pin);
+                }
+
+                Marshal.FreeHGlobal(pCertInfo);
+                if (marshaledCredential != IntPtr.Zero)
+                {
+                    NativeMethods.CredFree(marshaledCredential);
+                }
+            
+                return psCreds;
+            }
+        }
+    }
+"@
+
+    Add-Type -TypeDefinition $SmartCardCode -Language CSharp
+    Add-Type -AssemblyName System.Security
+
+    $ValidCerts = [System.Security.Cryptography.X509Certificates.X509Certificate2[]](Get-ChildItem 'Cert:\CurrentUser\My')
+    $Cert = [System.Security.Cryptography.X509Certificates.X509Certificate2UI]::SelectFromCollection($ValidCerts, 'Choose a certificate', 'Choose a certificate', 0)
+
+    $Pin = Read-Host "Enter your PIN: " -AsSecureString
+
+    [SmartCardLogon.Certificate]::MarshalFlow($Cert.Thumbprint, $Pin)
+}
+
+
+
 function Collect-RemoteSystemData {
     Param($DN)
     
@@ -1157,9 +1299,9 @@ function Collect-RemoteSystemData {
             New-PSSession -ComputerName $computers[$compsLow..$compsHigh] -SessionOption $sessionOpt -ErrorAction SilentlyContinue | Out-Null # Create reusable PS Sessions
         } else {
             if($compsInc -ne 1) {
-                New-PSSession -ComputerName $computers[$compsLow..$compsHigh].Name -SessionOption $sessionOpt -ErrorAction SilentlyContinue | Out-Null # Create reusable PS Sessions
+                New-PSSession -ComputerName $computers[$compsLow..$compsHigh].DNSHostName -SessionOption $sessionOpt -ErrorAction SilentlyContinue | Out-Null # Create reusable PS Sessions
             } else {
-                New-PSSession -ComputerName $computers.Name -SessionOption $sessionOpt -ErrorAction SilentlyContinue | Out-Null # Create reusable PS Sessions
+                New-PSSession -ComputerName $computers.DNSHostName -SessionOption $sessionOpt -ErrorAction SilentlyContinue | Out-Null # Create reusable PS Sessions
             }
         }
 
@@ -1173,11 +1315,11 @@ function Collect-RemoteSystemData {
         # Determine the systems where PS remoting failed for systems that were gathered from Active Directory
         } else {
             if($compsInc -ne 1) {
-                Get-FailedWinRMSessions $computers[$compsLow..$compsHigh].Name | 
+                Get-FailedWinRMSessions $computers[$compsLow..$compsHigh].DNSHostName | 
                     Select-Object Name,@{Name='Failure'; Expression={'WinRM'}} |
                     Export-Csv -Path failed_collection.csv -Append -NoTypeInformation
             } else {
-                Get-FailedWinRMSessions $computers.Name | 
+                Get-FailedWinRMSessions $computers.DNSHostName | 
                     Select-Object Name,@{Name='Failure'; Expression={'WinRM'}} |
                     Export-Csv -Path failed_collection.csv -Append -NoTypeInformation
             }
@@ -1616,7 +1758,7 @@ function Collect-ServerFeatures {
         if($SystemList) {
             $serverSessions = New-PSSession -ComputerName $winServers -SessionOption $sessionOpt -ErrorAction SilentlyContinue # Create reusable PS Sessions
         } else {
-            $serverSessions = New-PSSession -ComputerName $winServers.Name -SessionOption $sessionOpt -ErrorAction SilentlyContinue # Create reusable PS Sessions
+            $serverSessions = New-PSSession -ComputerName $winServers.DNSHostName -SessionOption $sessionOpt -ErrorAction SilentlyContinue # Create reusable PS Sessions
         }
 
 
@@ -1628,7 +1770,7 @@ function Collect-ServerFeatures {
 
         # Determine the systems where PS remoting failed for systems that were gathered from Active Directory
         } else {
-            Get-FailedWinRMSessions $winServers.Name | 
+            Get-FailedWinRMSessions $winServers.DNSHostName | 
                 Select-Object Name,@{Name='Failure'; Expression={'WinRMServer'}} |
                 Export-Csv -Path failed_collection.csv -Append -NoTypeInformation
         }
@@ -1711,7 +1853,10 @@ function Collect-ActiveDirectoryDatasets {
     # Get all OU groups and their members (does not work recursively)
     if($Migrated) {
         Write-Output "Active Directory: Getting domain group memberships."
-        $groups = Get-ADGroup -Filter * -Properties Members,msExchExtensionCustomAttribute1 -SearchBase $('OU=' + $OUName + ',' + (Get-ADDomain).DistinguishedName)
+        
+        $sb = 'OU=' + $OUName + ',DC=' + $Region + ',' + (Get-ADDomain -Server $Server).DistinguishedName
+        $svr =  $Region + '.' + $Server
+        $groups = Get-ADGroup -Filter * -Properties Members,msExchExtensionCustomAttribute1 -SearchBase $sb -Server $svr
 
         foreach($group in $groups) {
             $members = $group.Members
@@ -1731,6 +1876,7 @@ function Collect-ActiveDirectoryDatasets {
             # $Server domain and then in the GC if that fails; does not look up group memberships recursively
             foreach($mem in $members) {
                 try {
+                    # try at the forest root
                     Get-ADObject $mem -Properties msExchExtensionCustomAttribute1,SamAccountName -Server $Server | 
                         Where-Object {$_.ObjectClass -notlike 'computer'} |
                         Select-Object @{Name='GroupDistinguishedName'; Expression={$group.DistinguishedName}},
@@ -1750,7 +1896,8 @@ function Collect-ActiveDirectoryDatasets {
                         Export-Csv -Path ad_group_members.csv -Append -NoTypeInformation
                 } catch {
                     try {
-                        Get-ADObject $mem -Properties msExchExtensionCustomAttribute1,SamAccountName -Server :3268 | 
+                        # try with a subdomain
+                        Get-ADObject $mem -Properties msExchExtensionCustomAttribute1,SamAccountName -Server $svr | 
                             Where-Object {$_.ObjectClass -notlike 'computer'} |
                             Select-Object @{Name='GroupDistinguishedName'; Expression={$group.DistinguishedName}},
                                           @{Name='GroupSamAccountName'; Expression={$group.SamAccountName}},
@@ -1768,7 +1915,29 @@ function Collect-ActiveDirectoryDatasets {
                                           @{Name='ObjectClass'; Expression={$_.ObjectClass}} |
                             Export-Csv -Path ad_group_members.csv -Append -NoTypeInformation
                     } catch {
-                        Write-Output "`tCould not located object: $($mem)"
+                        # try to global catalog
+                        try {
+                            Get-ADObject $mem -Properties msExchExtensionCustomAttribute1,SamAccountName -Server :3268 | 
+                                Where-Object {$_.ObjectClass -notlike 'computer'} |
+                                Select-Object @{Name='GroupDistinguishedName'; Expression={$group.DistinguishedName}},
+                                              @{Name='GroupSamAccountName'; Expression={$group.SamAccountName}},
+                                              @{Name='Name'; Expression={$_.Name}},
+                                              @{Name='SamAccountName'; Expression={$_.SamAccountName}},
+                                              @{Name='Location'; Expression={
+                                                                $_.msExchExtensionCustomAttribute1 | 
+                                                                    ForEach-Object {
+                                                                        if($_.ToString() -match "iPostSite\|(.*)") {
+                                                                            $Matches[1]
+                                                                        }
+                                                                    }
+                                                             }},
+                                              @{Name='DistinguishedName'; Expression={$_.DistinguishedName}},
+                                              @{Name='ObjectClass'; Expression={$_.ObjectClass}} |
+                                Export-Csv -Path ad_group_members.csv -Append -NoTypeInformation
+                        } catch {
+
+                            Write-Output "`tCould not located object: $($mem)"
+                        }
                     }   
                 }    
             }
