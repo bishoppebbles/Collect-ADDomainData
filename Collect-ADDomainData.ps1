@@ -89,9 +89,9 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.59
+    Version 1.0.60
     Author: Sam Pursglove
-    Last modified: 07 November 2025
+    Last modified: 10 November 2025
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -1054,7 +1054,7 @@ function Try-FailedWinRM {
     if($Migrated) {
         $comps = $failedWinRMComps | 
             ForEach-Object {
-                Get-ADComputer -Filter "Name -like '$($_.Name)'" -Properties IPv4Address,LastLogonDate,OperatingSystem -SearchBase "ou=workstations,$DN" -Server $Server
+                Get-ADComputer -Filter "Name -like '$($_.Name)' -or DNSHostName -eq '$($_.Name)'" -Properties IPv4Address,LastLogonDate,OperatingSystem -SearchBase "ou=workstations,$DN" -Server $Server
             }
     } else {
         $comps = $failedWinRMComps |
@@ -1293,15 +1293,18 @@ function Collect-RemoteSystemData {
         ErrorAction   = 'SilentlyContinue'
     }
 
-    # Check if alternate PS remoting smart card credentials should be used
-    if($AltSmartCardCred) {
-        $sessArgs['Credential'] = Get-SmartCardCred
-    }
     
     $compsLow = 0
     $compsHigh = $compsInc - 1
     
     while($compsMax -gt 0) {
+
+        # Check if alternate PS remoting smart card credentials should be used
+        if($AltSmartCardCred) {
+            if(-not $sessArgs.ContainsKey('Credential')) {
+                $sessArgs['Credential'] = Get-SmartCardCred
+            }
+        }
         
         if($compsMax -lt $compsInc) {
             $compsHigh = $compsLow + $compsMax - 1
