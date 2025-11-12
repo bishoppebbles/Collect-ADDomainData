@@ -89,14 +89,13 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.61
+    Version 1.0.62
     Author: Sam Pursglove
     Last modified: 12 November 2025
 
     FakeHyena name credit goes to Kennon Lee.
 
-    Certificate credential function credit goes to Joshua Chase with C# code used from https://github.com/bongiovimatthew-microsoft/pscredentialWithCert
-
+    The Get-SmartCardCred PowerShell function is written by Joshua Chase using code adopted from C# by Matthew Bongiovi (https://github.com/bongiovimatthew-microsoft/pscredentialWithCert).  It is provided under the MIT license.
 
     **Steps to enable PS Remoting via Group Policy**
 
