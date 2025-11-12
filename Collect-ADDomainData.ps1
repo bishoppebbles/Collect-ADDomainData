@@ -89,7 +89,7 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.62
+    Version 1.0.63
     Author: Sam Pursglove
     Last modified: 12 November 2025
 
@@ -1224,6 +1224,7 @@ C# code used from https://github.com/bongiovimatthew-microsoft/pscredentialWithC
 "@
 
     Add-Type -TypeDefinition $SmartCardCode -Language CSharp
+    Add-Type -AssemblyName System.Security
 
     $ValidCerts = [System.Security.Cryptography.X509Certificates.X509Certificate2[]](Get-ChildItem 'Cert:\CurrentUser\My')
     $Cert = [System.Security.Cryptography.X509Certificates.X509Certificate2UI]::SelectFromCollection($ValidCerts, 'Personal Certificate Store', 'Choose a certificate', 0)
