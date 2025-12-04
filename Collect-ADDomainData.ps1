@@ -15,14 +15,14 @@
     The server to use for the target domain.
 .PARAMETER SystemList
     The list of fully qualified domain systems to collect.  Note that this option does not export system data to the domain_computers.csv dataset as it is unavailable.
+.PARAMETER AltSmartCardCred
+    An option to use alternate smart card credentials for PowerShell remoting sessions.
 .PARAMETER PSRemotingLimit
     Limit the number of active PowerShell Remoting sessions.
 .PARAMETER LocalCollectionOnly
     Collect the datasets on the local system (does not use PowerShell remoting functionality).
 .PARAMETER IncludeModules
     Collect process module data and hash the related image files.  Added as an option as the collection can be very slow in large environments.
-.PARAMETER AltSmartCardCred
-    An option to use alternate smart card credentials for PowerShell remoting sessions.
 .PARAMETER DHCPServer
     Specify the server name if collecting Windows DHCP server scope and lease information with other domain data.
 .PARAMETER IncludeServerFeatures
@@ -89,9 +89,9 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.64
+    Version 1.0.65
     Author: Sam Pursglove
-    Last modified: 12 November 2025
+    Last modified: 03 December 2025
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -147,6 +147,12 @@ param (
     [Parameter(ParameterSetName='ListServerFeature', Mandatory=$True, ValueFromPipeline=$False, HelpMessage="Enter the list of fully qualified domain name systems (e.g. 'svr1.domain.com','svr2.domain.com')")]
     [string[]]$SystemList = '',
 
+    [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Try to collection systems that previous failed the WinRM connection attempt')]
+    [Parameter(ParameterSetName='Migrated', Mandatory=$False, HelpMessage='Try to collection systems that previous failed the WinRM connection attempt')]
+    [Parameter(ParameterSetName='ServerFeaturesOnly', Mandatory=$False, HelpMessage='Try to collection systems that previous failed the WinRM connection attempt')]
+    [Parameter(ParameterSetName='ServerFeaturesOnlyMigrated', Mandatory=$False, HelpMessage='Try to collection systems that previous failed the WinRM connection attempt')]
+    [switch]$FailedWinRM,
+
     [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Limit the number of active PowerShell Remoting sessions')]
     [Parameter(ParameterSetName='Migrated', Mandatory=$False, HelpMessage='Limit the number of active PowerShell Remoting sessions')]
     [Parameter(ParameterSetName='List', Mandatory=$False, HelpMessage='Limit the number of active PowerShell Remoting sessions')]
@@ -193,13 +199,7 @@ param (
 
     [Parameter(ParameterSetName='ADOnly', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collect AD user and group membership data')]
     [Parameter(ParameterSetName='ADOnlyMigrated', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collect AD user and group membership data')]
-    [Switch]$ActiveDirectoryOnly,
-
-    [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Try to collection systems that previous failed the WinRM connection attempt')]
-    [Parameter(ParameterSetName='Migrated', Mandatory=$False, HelpMessage='Try to collection systems that previous failed the WinRM connection attempt')]
-    [Parameter(ParameterSetName='ServerFeaturesOnly', Mandatory=$False, HelpMessage='Try to collection systems that previous failed the WinRM connection attempt')]
-    [Parameter(ParameterSetName='ServerFeaturesOnlyMigrated', Mandatory=$False, HelpMessage='Try to collection systems that previous failed the WinRM connection attempt')]
-    [switch]$FailedWinRM
+    [Switch]$ActiveDirectoryOnly
 )
 
 
@@ -1053,7 +1053,7 @@ function Try-FailedWinRM {
     if($Migrated) {
         $comps = $failedWinRMComps | 
             ForEach-Object {
-                Get-ADComputer -Filter "Name -like '$($_.Name)' -or DNSHostName -eq '$($_.Name)'" -Properties IPv4Address,LastLogonDate,OperatingSystem -SearchBase "ou=workstations,$DN" -Server $Server
+                Get-ADComputer -Filter "Name -like '$($_.Name)' -or DNSHostName -like '$($_.Name)'" -Properties IPv4Address,LastLogonDate,OperatingSystem -SearchBase "ou=workstations,$DN" -Server $Server
             }
     } else {
         $comps = $failedWinRMComps |
@@ -1291,7 +1291,7 @@ function Collect-RemoteSystemData {
     }
 
     # New-PSSession paramters
-    $sessArgs = @{
+    $script:sessArgs = @{
         SessionOption = $sessionOpt
         ErrorAction   = 'SilentlyContinue'
     }
@@ -1305,7 +1305,7 @@ function Collect-RemoteSystemData {
         # Check if alternate PS remoting smart card credentials should be used
         if($AltSmartCardCred) {
             if(-not $sessArgs.ContainsKey('Credential')) {
-                $sessArgs['Credential'] = Get-SmartCardCred
+                $script:sessArgs['Credential'] = Get-SmartCardCred
             }
         }
         
@@ -1320,12 +1320,12 @@ function Collect-RemoteSystemData {
         Write-Output "Remoting: Creating PowerShell sessions (Systems: $($compsLow + 1) - $($compsHigh + 1) of $(($computers | Measure-Object).Count))."
         
         if($SystemList) {
-            $sessArgs['ComputerName'] = $computers[$compsLow..$compsHigh]
+            $script:sessArgs['ComputerName'] = $computers[$compsLow..$compsHigh]
         } else {
             if($compsInc -ne 1) {
-                $sessArgs['ComputerName'] = $computers[$compsLow..$compsHigh].DNSHostName
+                $script:sessArgs['ComputerName'] = $computers[$compsLow..$compsHigh].DNSHostName
             } else {
-                $sessArgs['ComputerName'] = $computers.DNSHostName
+                $script:sessArgs['ComputerName'] = $computers.DNSHostName
             }
         }
 
@@ -1778,14 +1778,31 @@ function Collect-ServerFeatures {
     
         # Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
         Write-Output "Remoting: Creating PowerShell server sessions."
-         # Minimize your presence and don't create a user profile on every system (e.g., C:\Users\<username>)
-        $sessionOpt = New-PSSessionOption -NoMachineProfile
+         
 
-        if($SystemList) {
-            $serverSessions = New-PSSession -ComputerName $winServers -SessionOption $sessionOpt -ErrorAction SilentlyContinue # Create reusable PS Sessions
+        if(-not $scipt:sessArgs) {
+            $script:sessArgs = @{
+                SessionOption = New-PSSessionOption -NoMachineProfile # Minimize your presence and don't create a user profile on every system (e.g., C:\Users\<username>)
+                ErrorAction   = 'SilentlyContinue'
+            }
         } else {
-            $serverSessions = New-PSSession -ComputerName $winServers.DNSHostName -SessionOption $sessionOpt -ErrorAction SilentlyContinue # Create reusable PS Sessions
+            $scipt:sessArgs['ComputerName'] = $null
         }
+
+        # Check if alternate PS remoting smart card credentials should be used
+        if($AltSmartCardCred) {
+            if(-not $sessArgs.ContainsKey('Credential')) {
+                $script:sessArgs['Credential'] = Get-SmartCardCred
+            }
+        }
+        
+        if($SystemList) {
+            $script:sessArgs['ComputerName'] = $winServers
+        } else {
+            $script:sessArgs['ComputerName'] = $winServers.DNSHostName
+        }
+
+        $serverSessions = New-PSSession @sessArgs
 
 
         if($SystemList) {
