@@ -89,9 +89,9 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.65
+    Version 1.0.66
     Author: Sam Pursglove
-    Last modified: 03 December 2025
+    Last modified: 11 December 2025
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -1053,12 +1053,12 @@ function Try-FailedWinRM {
     if($Migrated) {
         $comps = $failedWinRMComps | 
             ForEach-Object {
-                Get-ADComputer -Filter "Name -like '$($_.Name)' -or DNSHostName -like '$($_.Name)'" -Properties IPv4Address,LastLogonDate,OperatingSystem -SearchBase "ou=workstations,$DN" -Server $Server
+                Get-ADComputer -Filter "DNSHostName -like '$($_.Name)' -or Name -like '$($_.Name)'" -Properties IPv4Address,LastLogonDate,OperatingSystem -SearchBase "ou=workstations,$DN" -Server $Server
             }
     } else {
         $comps = $failedWinRMComps |
             ForEach-Object {
-                Get-ADComputer -Filter "Name -like '$($_.Name)'" -Properties IPv4Address,LastLogonDate,OperatingSystem -SearchBase $DN
+                Get-ADComputer -Filter "DNSHostName -like '$($_.Name)' -or Name -like '$($_.Name)'" -Properties IPv4Address,LastLogonDate,OperatingSystem -SearchBase $DN
             }
     }
 
