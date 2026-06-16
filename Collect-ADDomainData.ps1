@@ -91,7 +91,7 @@
 .NOTES
     Version 1.0.66
     Author: Sam Pursglove
-    Last modified: 11 December 2025
+    Last modified: 16 June 2026
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -265,6 +265,66 @@ function getLocalUsers {
 function getLocalGroupMembers {
     $sidRegex = "S-1-5-21-.+-(\d+$)"
     
+    # convert the provided value to a readable SID
+    function ConvertTo-SID {
+        Param([byte[]]$BinarySID)
+            
+        [System.Security.Principal.SecurityIdentifier]::new($BinarySID, 0).Value
+    }
+
+    # get and parse the group member data points of interest
+    function localGroupMember {
+        Param($Group)
+            
+        try {
+            $Group.Invoke('members') | ForEach-Object {
+                # parse the ADSPath to get the domain and determine if it's a local object or from AD
+                $_.GetType().InvokeMember("ADSPath", 'GetProperty', $null, $_, $null) -match "WinNT:\/\/(\w+)\/(.+)\/" | Out-Null
+            
+                if($Matches.Count -gt 2) {
+                    $domain = $Matches[2]
+                    $source = 'Local'
+                    $Matches.Clear()
+                } elseif($Matches) {
+                    $_.GetType().InvokeMember("ADSPath", 'GetProperty', $null, $_, $null) -match "WinNT:\/\/(\w+)\/" | Out-Null
+                    $domain = $Matches[1]
+                    $source = 'ActiveDirectory'
+                    $Matches.Clear()
+                }        
+
+                $SID = ConvertTo-SID $_.GetType().InvokeMember("ObjectSID", 'GetProperty', $null, $_, $null)
+
+                # parse the RID from the SID
+                if ($SID -match $sidRegex) {
+                        $RID = $Matches[1]
+                    } else {
+                        $RID = ''
+                    } 
+
+                @{
+                    Name            = $_.GetType().InvokeMember("Name", 'GetProperty', $null, $_, $null)
+                    ObjectClass     = $_.GetType().InvokeMember("Class", 'GetProperty', $null, $_, $null)    
+                    SID             = $SID
+                    RID             = $RID
+                    Domain          = $domain
+                    PrincipalSource = $source
+                }
+            }
+            
+        } catch {
+            # added to suppress errors returned due to violating constrained language mode (CLM) restrictions
+            @{
+                Name            = 'ADSI CLM Failure'
+                ObjectClass     = 'ADSI CLM Failure'
+                SID             = 'ADSI CLM Failure'
+                RID             = 'ADSI CLM Failure'
+                Domain          = 'ADSI CLM Failure'
+                PrincipalSource = 'ADSI CLM Failure'
+            }
+        }
+    }
+
+
     try {
         # get all local groups
         $groups = Get-LocalGroup
@@ -295,14 +355,20 @@ function getLocalGroupMembers {
                     } 
                 }
             } catch [System.InvalidOperationException] {
-                @{
-                    GroupName       = $group.Name
-                    Name            = 'Get-LocalGroupMember InvalidOperationException'
-                    Domain          = 'Get-LocalGroupMember InvalidOperationException'
-                    SID             = 'Get-LocalGroupMember InvalidOperationException'
-                    RID             = 'Get-LocalGroupMember InvalidOperationException'
-                    PrincipalSource = 'Get-LocalGroupMember InvalidOperationException'
-                    ObjectClass     = 'Get-LocalGroupMember InvalidOperationException'
+                # try ADSI to get a single local group's members using ADSI if the Get-LocalGroupMember cmdlet fails, only return a result if it has group members
+                $localGroupMem = localGroupMember ([ADSI]"WinNT://$env:COMPUTERNAME/$group,group")
+        
+                # output the combined group and individual group member data
+                foreach($member in $localGroupMem) {
+                    @{
+                        GroupName       = $group.Name
+                        Name            = $member.Name
+                        Domain          = $member.Domain
+                        SID             = $member.SID
+                        RID             = $member.RID
+                        PrincipalSource = $member.PrincipalSource
+                        ObjectClass     = $member.ObjectClass            
+                    }
                 }
             }
         }        
@@ -310,57 +376,6 @@ function getLocalGroupMembers {
     # run if the Get-Local* cmdlets are not installed on the remote systems
     } catch [System.Management.Automation.RuntimeException] {
        
-        # convert the provided value to a readable SID
-        function ConvertTo-SID {
-            Param([byte[]]$BinarySID)
-            
-            (New-Object System.Security.Principal.SecurityIdentifier($BinarySID,0)).Value
-        }
-
-        # get and parse the group member data points of interest
-        function localGroupMember {
-            Param($Group)
-            
-            try {
-                $Group.Invoke('members') | ForEach-Object {
-                    # parse the ADSPath to get the domain and determine if it's a local object or from AD
-                    $_.GetType().InvokeMember("ADSPath", 'GetProperty', $null, $_, $null) -match "WinNT:\/\/(\w+)\/(.+)\/" | Out-Null
-            
-                    if($Matches.Count -gt 2) {
-                        $domain = $Matches[2]
-                        $source = 'Local'
-                        $Matches.Clear()
-                    } elseif($Matches) {
-                        $_.GetType().InvokeMember("ADSPath", 'GetProperty', $null, $_, $null) -match "WinNT:\/\/(\w+)\/" | Out-Null
-                        $domain = $Matches[1]
-                        $source = 'ActiveDirectory'
-                        $Matches.Clear()
-                    }        
-
-                    $SID = ConvertTo-SID $_.GetType().InvokeMember("ObjectSID", 'GetProperty', $null, $_, $null)
-
-                    # parse the RID from the SID
-                    if ($SID -match $sidRegex) {
-                            $RID = $Matches[1]
-                        } else {
-                            $RID = ''
-                        } 
-
-                    @{
-                        Name            = $_.GetType().InvokeMember("Name", 'GetProperty', $null, $_, $null)
-                        ObjectClass     = $_.GetType().InvokeMember("Class", 'GetProperty', $null, $_, $null)    
-                        SID             = $SID
-                        RID             = $RID
-                        Domain          = $domain
-                        PrincipalSource = $source
-                    }
-                }
-            
-            } catch {
-                # added to suppress errors returned due to violating constrained language mode restrictions
-            }
-        }
-
         # get local groups using ADSI
         $adsi   = [ADSI]"WinNT://$env:COMPUTERNAME"
         $groups = $adsi.Children | Where-Object {$_.SchemaClassName -eq 'group'}
@@ -371,7 +386,8 @@ function getLocalGroupMembers {
                 GroupName    = $g.Name[0]
                 GroupMembers = (localGroupMember -Group $g)
             }
-        } 
+        }
+         
         # ignore groups with no members
         $groupMembers = $groupMembers | Where-Object {$_.GroupMembers -notlike ''}
         
@@ -391,7 +407,6 @@ function getLocalGroupMembers {
         }
     }
 }
-
 
 # With PS remoting the numeric codes for OperationalStatus, HealthStatus, BusType, and MediaType 
 # are returned instead of their text-friendly variants.  By using Select-Object this somehow forces
@@ -1053,12 +1068,12 @@ function Try-FailedWinRM {
     if($Migrated) {
         $comps = $failedWinRMComps | 
             ForEach-Object {
-                Get-ADComputer -Filter "DNSHostName -like '$($_.Name)' -or Name -like '$($_.Name)'" -Properties IPv4Address,LastLogonDate,OperatingSystem -SearchBase "ou=workstations,$DN" -Server $Server
+                Get-ADComputer -Filter "Name -like '$($_.Name)' -or DNSHostName -like '$($_.Name)'" -Properties IPv4Address,LastLogonDate,OperatingSystem -SearchBase "ou=workstations,$DN" -Server $Server
             }
     } else {
         $comps = $failedWinRMComps |
             ForEach-Object {
-                Get-ADComputer -Filter "DNSHostName -like '$($_.Name)' -or Name -like '$($_.Name)'" -Properties IPv4Address,LastLogonDate,OperatingSystem -SearchBase $DN
+                Get-ADComputer -Filter "Name -like '$($_.Name)'" -Properties IPv4Address,LastLogonDate,OperatingSystem -SearchBase $DN
             }
     }
 
