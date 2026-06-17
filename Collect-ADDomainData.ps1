@@ -89,9 +89,9 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.66
+    Version 1.0.67
     Author: Sam Pursglove
-    Last modified: 16 June 2026
+    Last modified: 17 June 2026
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -1275,6 +1275,12 @@ function Collect-RemoteSystemData {
         $computers | Export-Csv -Path domain_computers.csv -Append -NoTypeInformation
     }    
 
+    # ensure computer objects exist before proceeding, otherwise exit the function
+    if($computers -eq $null) {
+        Write-Output "Active Directory: No computer objects found, exiting remote collection."
+        return
+    }
+
     # Create PS sessions for Windows only systems
     if(-not $SystemList) {
         # ran into an edge case where a duplicate AD computer object marked with
@@ -1791,6 +1797,12 @@ function Collect-ServerFeatures {
             $winServers = Get-DomainComputerObjects $DN -ServersOnly
         }
     
+        # ensure computer objects exist before proceeding, otherwise exit the function
+        if($winServers -eq $null) {
+            Write-Output "Active Directory: No server computer objects found, exiting remote server collection."
+            return
+        }
+
         # Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
         Write-Output "Remoting: Creating PowerShell server sessions."
          
@@ -1906,8 +1918,11 @@ function Collect-ActiveDirectoryDatasets {
         $adUsers = Get-ADUser @adUsersArgs
     }
 
-    $adUsers | Export-Csv -Path domain_users.csv -Append -NoTypeInformation
-       
+    $adUsers | 
+        Select-Object DistinguishedName,SID,UserPrincipalName,AccountExpirationDate,LastLogonDate,Name,GivenName,Surname,SamAccountName,ScriptPath,Enabled,LockedOut,SmartcardLogonRequired,PasswordExpired,PasswordNeverExpires,PasswordNotRequired,AccountNotDelegated,AllowReversiblePasswordEncryption,CannotChangePassword,ObjectClass,ObjectGUID |
+        Export-Csv -Path domain_users.csv -Append -NoTypeInformation
+
+
     # Get all OU groups and their members (does not work recursively)
     if($Migrated) {
         Write-Output "Active Directory: Getting domain group memberships."
