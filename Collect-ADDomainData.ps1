@@ -89,9 +89,9 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.67
+    Version 1.0.68
     Author: Sam Pursglove
-    Last modified: 17 June 2026
+    Last modified: 18 June 2026
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -669,7 +669,7 @@ function Get-OpenPSSessions {
 # Pull data from the local system and append to the existing CSV files
 function Collect-LocalSystemData {
     # Local Administrators group membership
-    Write-Output "Local: Getting local group memberships."
+    Write-Host "Local: Getting local group memberships."
     getLocalGroupMembers |
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
                       @{Name='GroupName'; Expression={$_.GroupName}},
@@ -683,7 +683,7 @@ function Collect-LocalSystemData {
 
 
     # Local user accounts
-    Write-Output "Local: Getting local user accounts."
+    Write-Host "Local: Getting local user accounts."
     getLocalUsers | 
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
 					  Name,
@@ -702,7 +702,7 @@ function Collect-LocalSystemData {
     
     # Processes
     # Check if the local session is running with elevated privileges
-    Write-Output "Local: Getting processes."
+    Write-Host "Local: Getting processes."
     $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
     $p = New-Object System.Security.Principal.WindowsPrincipal($id)
     if ($p.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -724,7 +724,7 @@ function Collect-LocalSystemData {
 
     # Modules (not collected by default)
     if ($IncludeModules) {
-        Write-Output "Local: Getting process modules."
+        Write-Host "Local: Getting process modules."
         $modTracker = @{}
 
         $localProcesses | ForEach-Object {
@@ -755,7 +755,7 @@ function Collect-LocalSystemData {
     }
 
     # Scheduled tasks
-    Write-Output "Local: Getting scheduled tasks."
+    Write-Host "Local: Getting scheduled tasks."
 	getScheduledTasks |
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
                       @{Name='TaskName'; Expression={$_.TaskName}},
@@ -773,7 +773,7 @@ function Collect-LocalSystemData {
 
 
     # Services
-    Write-Output "Local: Getting services."
+    Write-Host "Local: Getting services."
     getServices |
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
                       @{name='Name'; expression={$_.Name}},
@@ -791,28 +791,28 @@ function Collect-LocalSystemData {
 
 
     # Network connections
-    Write-Output "Local: Getting network connections."
+    Write-Host "Local: Getting network connections."
     netConnects | 
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Date,Time,LocalAddress,LocalPort,RemoteAddress,RemotePort,State,OwningProcess,ProcessName |
         Export-Csv -Path net.csv -Append -NoTypeInformation 
 
     
     # 64 bit programs
-    Write-Output "Local: Getting 64-bit programs."
+    Write-Host "Local: Getting 64-bit programs."
     Get-ChildItem -Path 'C:\Program Files' |
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'64-bit'}} |
 	    Export-Csv -Path programs.csv -Append -NoTypeInformation
 
     
     # 32 bit programs
-    Write-Output "Local: Getting 32-bit programs."
+    Write-Host "Local: Getting 32-bit programs."
     Get-ChildItem -Path 'C:\Program Files (x86)' |
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'32-bit'}} |
 	    Export-Csv -Path programs.csv -Append -NoTypeInformation
 
 
     # Local system information
-    Write-Output "Local: Getting system information."
+    Write-Host "Local: Getting system information."
     Get-ComputerInfo -OutVariable hotFixes |
         Select-Object @{Name='PSComputerName'; Expression={$_.CsName}},
                       WindowsCurrentVersion,
@@ -851,7 +851,7 @@ function Collect-LocalSystemData {
 
     
     # Local system hot fix information
-    Write-Output "Local: Getting system hot fix information."
+    Write-Host "Local: Getting system hot fix information."
     $hotFixes.OsHotFixes | 
         ForEach-Object {
             [pscustomobject]@{
@@ -866,7 +866,7 @@ function Collect-LocalSystemData {
 
 
     # BitLocker information
-    Write-Output "Local: Getting BitLocker information."
+    Write-Host "Local: Getting BitLocker information."
     if(Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue) {
         Get-BitLockerVolume -ErrorAction SilentlyContinue |
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
@@ -886,12 +886,12 @@ function Collect-LocalSystemData {
         Export-Csv -Path bitlocker.csv -Append -NoTypeInformation
     
     } else {
-        Write-Output "Local: BitLocker module unavailable."
+        Write-Host "Local: BitLocker module unavailable."
     }
 
 
     # Antimalware software information
-    Write-Output "Local: Getting antimalware software information."
+    Write-Host "Local: Getting antimalware software information."
     Get-MpComputerStatus -ErrorAction SilentlyContinue |
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
                       AMEngineVersion,
@@ -937,7 +937,7 @@ function Collect-LocalSystemData {
 
 
     # Physical disk information
-    Write-Output "Local: Getting physical disk information."
+    Write-Host "Local: Getting physical disk information."
     Get-PhysicalDisk |
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
                       OperationalStatus,
@@ -957,7 +957,7 @@ function Collect-LocalSystemData {
 
 
     # Hard drive volume storage information
-    Write-Output "Local: Getting hard drive storage information."
+    Write-Host "Local: Getting hard drive storage information."
     Get-PSDrive -PSProvider FileSystem | 
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
                       Name,
@@ -971,14 +971,14 @@ function Collect-LocalSystemData {
 
     
     # Shares
-    Write-Output "Local: Getting shares."
+    Write-Host "Local: Getting shares."
     Get-SmbShare | 
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,Path,Description,EncryptData,CurrentUsers,ShareType |
         Export-Csv -Path shares.csv -Append -NoTypeInformation
 
     
     # Share permissions
-    Write-Output "Local: Getting share permissions."
+    Write-Host "Local: Getting share permissions."
     Get-SmbShare | 
         Get-SmbShareAccess | 
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,AccountName,AccessControlType,AccessRight |
@@ -986,7 +986,7 @@ function Collect-LocalSystemData {
 
     
     # Downloads, Documents, and Desktop files
-    Write-Output "Local: Getting Documents, Desktop, and Downloads file information."
+    Write-Host "Local: Getting Documents, Desktop, and Downloads file information."
     Get-ChildItem -Path 'C:\Users\*\Downloads\','C:\Users\*\Documents\','C:\Users\*\Desktop\' -Recurse |
         Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Directory,Name,Extension,CreationTime,LastAccessTime,LastWriteTime,Attributes |
 	    Export-Csv -Path files.csv -Append -NoTypeInformation
@@ -1053,7 +1053,7 @@ function Try-FailedWinRM {
     if(Test-Path .\failed_collection.csv) {
         $failed = Import-Csv .\failed_collection.csv
     } else {
-        Write-Output 'File not found: failed_collection.csv is not in the current working directory.'
+        Write-Host 'File not found: failed_collection.csv is not in the current working directory.'
         exit
     }
     
@@ -1260,7 +1260,7 @@ function Collect-RemoteSystemData {
     
     # Collect domain computer objects or retry systems that previously failed WinRM connection attempts
     if($FailedWinRM) {
-        Write-Output "Active Directory: Getting previously failed PSRemoting domain computer objects."
+        Write-Host "Active Directory: Getting previously failed PSRemoting domain computer objects."
         $computers = Try-FailedWinRM $DN
     
     # Collect computer objects based on a user supplied list of target systems, does not perform any AD lookups
@@ -1268,7 +1268,7 @@ function Collect-RemoteSystemData {
         $computers = $SystemList
     
     } else {
-        Write-Output "Active Directory: Getting domain computer objects."
+        Write-Host "Active Directory: Getting domain computer objects."
         $computers = Get-DomainComputerObjects $DN
 
         # Only export domain computer account info on the first collection
@@ -1277,7 +1277,7 @@ function Collect-RemoteSystemData {
 
     # ensure computer objects exist before proceeding, otherwise exit the function
     if($computers -eq $null) {
-        Write-Output "Active Directory: No computer objects found, exiting remote collection."
+        Write-Host "Active Directory: No computer objects found, exiting remote collection."
         return
     }
 
@@ -1338,7 +1338,7 @@ function Collect-RemoteSystemData {
         }
 
         # Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
-        Write-Output "Remoting: Creating PowerShell sessions (Systems: $($compsLow + 1) - $($compsHigh + 1) of $(($computers | Measure-Object).Count))."
+        Write-Host "Remoting: Creating PowerShell sessions (Systems: $($compsLow + 1) - $($compsHigh + 1) of $(($computers | Measure-Object).Count))."
         
         if($SystemList) {
             $script:sessArgs['ComputerName'] = $computers[$compsLow..$compsHigh]
@@ -1377,12 +1377,12 @@ function Collect-RemoteSystemData {
         $totalSessions = (Get-PSSession | Measure-Object).Count
         
         if($totalSessions -eq 0) {
-            Write-Output "Remoting: $totalSessions PowerShell sessions created, exiting."
-            exit
+            Write-Host "Remoting: $totalSessions PowerShell sessions created, exiting remote collection."
+            return
         } elseif($totalSessions -eq 1) {
-            Write-Output "Remoting: $totalSessions PowerShell session created."
+            Write-Host "Remoting: $totalSessions PowerShell session created."
         } else {
-            Write-Output "Remoting: $totalSessions PowerShell sessions created."
+            Write-Host "Remoting: $totalSessions PowerShell sessions created."
         }
 
 
@@ -1393,7 +1393,7 @@ function Collect-RemoteSystemData {
 
         ### Remoting data pull ###
         # Local group memberships
-        Write-Output "Remoting: Getting local group memberships."
+        Write-Host "Remoting: Getting local group memberships."
         Get-BrokenPSSessions 'LocalGroupMembers'
 
         Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getLocalGroupMembers} |
@@ -1409,7 +1409,7 @@ function Collect-RemoteSystemData {
 
 
         # Local user accounts
-        Write-Output "Remoting: Getting local user accounts."
+        Write-Host "Remoting: Getting local user accounts."
         Get-BrokenPSSessions 'LocalUsers'
 
         Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getLocalUsers} |
@@ -1429,7 +1429,7 @@ function Collect-RemoteSystemData {
 
 
         # Processes
-        Write-Output "Remoting: Getting processes."
+        Write-Host "Remoting: Getting processes."
         Get-BrokenPSSessions 'Process'
 
         Invoke-Command -Session (Get-OpenPSSessions) `
@@ -1451,7 +1451,7 @@ function Collect-RemoteSystemData {
 
         # Modules (not included by default)
         if ($IncludeModules) {
-            Write-Output "Remoting: Getting process modules."
+            Write-Host "Remoting: Getting process modules."
             Get-BrokenPSSessions 'Modules'
 
             Invoke-Command -Session (Get-OpenPSSessions) `
@@ -1488,7 +1488,7 @@ function Collect-RemoteSystemData {
         }
 
         # Scheduled tasks
-        Write-Output "Remoting: Getting scheduled tasks."
+        Write-Host "Remoting: Getting scheduled tasks."
         Get-BrokenPSSessions 'ScheduledTask'
 
         Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getScheduledTasks} |
@@ -1508,7 +1508,7 @@ function Collect-RemoteSystemData {
 			
 
         # Services
-        Write-Output "Remoting: Getting services."
+        Write-Host "Remoting: Getting services."
         Get-BrokenPSSessions 'Services'
 
         Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getServices} |
@@ -1528,7 +1528,7 @@ function Collect-RemoteSystemData {
 
 
         # Network connections
-        Write-Output "Remoting: Getting network connections."
+        Write-Host "Remoting: Getting network connections."
         Get-BrokenPSSessions 'Network'
 
         Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:netConnects} |
@@ -1537,7 +1537,7 @@ function Collect-RemoteSystemData {
 
 
         # 64 bit programs
-        Write-Output "Remoting: Getting 64-bit programs."
+        Write-Host "Remoting: Getting 64-bit programs."
         Get-BrokenPSSessions 'Programs64'
 
         Invoke-Command -Session (Get-OpenPSSessions) `
@@ -1550,7 +1550,7 @@ function Collect-RemoteSystemData {
 
 
         # 32 bit programs
-        Write-Output "Remoting: Getting 32-bit programs."
+        Write-Host "Remoting: Getting 32-bit programs."
         Get-BrokenPSSessions 'Programs32'
 
         Invoke-Command -Session (Get-OpenPSSessions) `
@@ -1563,7 +1563,7 @@ function Collect-RemoteSystemData {
 
 
         # System information
-        Write-Output "Remoting: Getting system information."
+        Write-Host "Remoting: Getting system information."
         Get-BrokenPSSessions 'SystemInformation'
 
         Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-ComputerInfo -ErrorAction SilentlyContinue} |
@@ -1604,7 +1604,7 @@ function Collect-RemoteSystemData {
 
 
         # System hot fix information
-        Write-Output "Remoting: Getting system hot fix information."
+        Write-Host "Remoting: Getting system hot fix information."
         Get-BrokenPSSessions 'SystemHotFix'
     
         Invoke-Command -Session (Get-OpenPSSessions) `
@@ -1626,7 +1626,7 @@ function Collect-RemoteSystemData {
 
 
         # BitLocker information
-        Write-Output "Remoting: Getting BitLocker information."
+        Write-Host "Remoting: Getting BitLocker information."
         Get-BrokenPSSessions 'BitLocker'
 
         Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {if(Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue) {Get-BitLockerVolume -ErrorAction SilentlyContinue} } |
@@ -1648,7 +1648,7 @@ function Collect-RemoteSystemData {
 
 
         # Antimalware software information
-        Write-Output "Remoting: Getting antimalware software information."
+        Write-Host "Remoting: Getting antimalware software information."
         Get-BrokenPSSessions 'Antimalware'
         
         Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-MpComputerStatus -ErrorAction SilentlyContinue} |
@@ -1696,7 +1696,7 @@ function Collect-RemoteSystemData {
 
 
         # Physical disk information
-        Write-Output "Remoting: Getting physical disk information."
+        Write-Host "Remoting: Getting physical disk information."
         Get-BrokenPSSessions 'PhysicalDisk'
         
         Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getPhysicalDiskInfo} |
@@ -1718,7 +1718,7 @@ function Collect-RemoteSystemData {
 
 
         # Hard drive volume storage information
-        Write-Output "Remoting: Getting hard drive storage information."
+        Write-Host "Remoting: Getting hard drive storage information."
         Get-BrokenPSSessions 'HardDriveInformation'
 
         Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-PSDrive -PSProvider FileSystem} |
@@ -1734,7 +1734,7 @@ function Collect-RemoteSystemData {
 
 
         # Shares
-        Write-Output "Remoting: Getting shares."
+        Write-Host "Remoting: Getting shares."
         Get-BrokenPSSessions 'Shares'
 
         Invoke-Command -Session (Get-OpenPSSessions) `
@@ -1747,7 +1747,7 @@ function Collect-RemoteSystemData {
 
 
         # Share permissions
-        Write-Output "Remoting: Getting share permissions."
+        Write-Host "Remoting: Getting share permissions."
         Get-BrokenPSSessions 'SharePermissions'
 
         Invoke-Command -Session (Get-OpenPSSessions) `
@@ -1761,7 +1761,7 @@ function Collect-RemoteSystemData {
 
 
         # Downloads, Documents, and Desktop files
-        Write-Output "Remoting: Getting Documents, Desktop, and Downloads file information."
+        Write-Host "Remoting: Getting Documents, Desktop, and Downloads file information."
         Get-BrokenPSSessions 'Files'
 
         Invoke-Command -Session (Get-OpenPSSessions) `
@@ -1773,7 +1773,7 @@ function Collect-RemoteSystemData {
             Export-Csv -Path files.csv -Append -NoTypeInformation
 
 
-        Write-Output "Remoting: Removing PowerShell sessions."
+        Write-Host "Remoting: Removing PowerShell sessions."
         Get-PSSession | Remove-PSSession
     }
 }
@@ -1785,7 +1785,7 @@ function Collect-ServerFeatures {
     if (-not $LocalCollectionOnly) {
         # Collect server domain computer objects or retry systems that previously failed WinRM connection attempts
         if($FailedWinRM) {
-            Write-Output "Active Directory: Getting previously failed PSRemoting domain computer objects."
+            Write-Host "Active Directory: Getting previously failed PSRemoting domain computer objects."
             $winServers = Try-FailedWinRM $DN -ServersOnly
         
         # Collect computer objects based on a user supplied list of target server systems, does not perform any AD lookups
@@ -1793,18 +1793,18 @@ function Collect-ServerFeatures {
             $winServers = $SystemList
         
         } else {
-            Write-Output "Active Directory: Getting server OS domain computer objects."
+            Write-Host "Active Directory: Getting server OS domain computer objects."
             $winServers = Get-DomainComputerObjects $DN -ServersOnly
         }
     
         # ensure computer objects exist before proceeding, otherwise exit the function
         if($winServers -eq $null) {
-            Write-Output "Active Directory: No server computer objects found, exiting remote server collection."
+            Write-Host "Active Directory: No server computer objects found, exiting remote server collection."
             return
         }
 
         # Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
-        Write-Output "Remoting: Creating PowerShell server sessions."
+        Write-Host "Remoting: Creating PowerShell server sessions."
          
 
         if(-not $scipt:sessArgs) {
@@ -1832,6 +1832,19 @@ function Collect-ServerFeatures {
         $serverSessions = New-PSSession @sessArgs
 
 
+        # Display the total number of PS server sessions created
+        $totalSessions = ($serverSessions | Measure-Object).Count
+        
+        if($totalSessions -eq 0) {
+            Write-Host "Remoting: $totalSessions PowerShell server sessions created, exiting remote server collection."
+            return
+        } elseif($totalSessions -eq 1) {
+            Write-Host "Remoting: $totalSessions PowerShell server session created."
+        } else {
+            Write-Host "Remoting: $totalSessions PowerShell server sessions created."
+        }
+
+
         if($SystemList) {
         # Determine the systems where PS remoting failed for a user supplied list of targets
             Get-FailedWinRMSessions $winServers | 
@@ -1846,18 +1859,18 @@ function Collect-ServerFeatures {
         }
 
         # Windows Server installed features
-        Write-Output "Server: Getting installed features."
+        Write-Host "Server: Getting installed features."
         Invoke-Command -Session $serverSessions -ScriptBlock {Get-WindowsFeature | Where-Object {$_.InstallState -eq 'Installed'} | Select-Object Name,DisplayName,Description,InstallState,Parent,Depth,Path,FeatureType} | 
             Select-Object PSComputerName,Name,DisplayName,Description,InstallState,Parent,Depth,Path,FeatureType |
 	        Export-Csv -Path windows_server_features.csv -Append -NoTypeInformation
 
-        Write-Output "Server: Removing PowerShell sessions."
-        Get-PSSession | Remove-PSSession
+        Write-Host "Server: Removing PowerShell sessions."
+        $serverSessions | Remove-PSSession
     
     # server features local collection
     } else {
 
-        Write-Output "Local server: Getting installed features."
+        Write-Host "Local server: Getting installed features."
         Get-WindowsFeature | 
             Where-Object {$_.InstallState -eq 'Installed'} | 
             Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,DisplayName,Description,InstallState,Parent,Depth,Path,FeatureType | 
@@ -1868,7 +1881,7 @@ function Collect-ServerFeatures {
 
 function Collect-DHCPLeases {
     Param($server)
-    Write-Output "Server: Getting DHCP leases."
+    Write-Host "Server: Getting DHCP leases."
 #        $dhcp = Get-CimInstance Win32_NetworkAdapterConfiguration -Filter "DHCPEnabled=$true" | 
 #                    Where-Object {$_.DHCPServer -like "10.*" -or $_.DHCPServer -like "172.*" -or $_.DHCPServer -like "192.168.*"}
     
@@ -1884,7 +1897,7 @@ function Collect-DHCPLeases {
 	 		    Export-Csv dhcp_leases.csv -Append -NoTypeInformation
         }
    	} else { 
-   		Write-Output 'DHCP cmdlets are not available.  Skipping DHCP data queries.' 
+   		Write-Host 'DHCP cmdlets are not available.  Skipping DHCP data queries.' 
 	}
 }
 
@@ -1893,7 +1906,7 @@ function Collect-ActiveDirectoryDatasets {
     param($DN)
 
     # Get domain user account information
-    Write-Output "Active Directory: Getting domain user objects."
+    Write-Host "Active Directory: Getting domain user objects."
     
     if ($Migrated) {
         $adUsersArgs = @{
@@ -1925,7 +1938,7 @@ function Collect-ActiveDirectoryDatasets {
 
     # Get all OU groups and their members (does not work recursively)
     if($Migrated) {
-        Write-Output "Active Directory: Getting domain group memberships."
+        Write-Host "Active Directory: Getting domain group memberships."
         
         $sb = 'OU=' + $OUName + ',DC=' + $Region + ',' + (Get-ADDomain -Server $Server).DistinguishedName
         $svr =  $Region + '.' + $Server
@@ -1943,7 +1956,7 @@ function Collect-ActiveDirectoryDatasets {
                  Export-Csv ad_empty_groups.csv -Append -NoTypeInformation
             }
 
-            Write-Output "In group: $($group)"
+            Write-Host "In group: $($group)"
 
             # export data about each group member using the Get-ADObject cmdlet while looking in the specified
             # $Server domain and then in the GC if that fails; does not look up group memberships recursively
@@ -2009,14 +2022,14 @@ function Collect-ActiveDirectoryDatasets {
                                 Export-Csv -Path ad_group_members.csv -Append -NoTypeInformation
                         } catch {
 
-                            Write-Output "`tCould not located object: $($mem)"
+                            Write-Host "`tCould not located object: $($mem)"
                         }
                     }   
                 }    
             }
         }
     } else {
-        Write-Output "Active Directory: Getting domain group memberships."
+        Write-Host "Active Directory: Getting domain group memberships."
         $groups = Get-ADGroup -Filter * -SearchBase $DN
 
         # export data and search recursively in the current domain for each
@@ -2034,7 +2047,7 @@ function Collect-ActiveDirectoryDatasets {
                                   @{Name='ObjectClass'; Expression={$_.ObjectClass}} |
                     Export-Csv -Path ad_group_members.csv -Append -NoTypeInformation
             } catch [Microsoft.ActiveDirectory.Management.ADException] {
-                Write-Output "$($group.SamAccountName): AD error recursing group (likely out of domain)"
+                Write-Host "$($group.SamAccountName): AD error recursing group (likely out of domain)"
             }
         }
     }
@@ -2050,7 +2063,7 @@ if (-not $LocalCollectionOnly) {
             Import-Module ActiveDirectory -ErrorAction Stop
         }
     } catch {
-        Write-Output 'Cannot load the ActiveDirectory Module, exiting.'
+        Write-Host 'Cannot load the ActiveDirectory Module, exiting.'
         Break
     }
     
