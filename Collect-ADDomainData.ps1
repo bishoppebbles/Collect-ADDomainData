@@ -89,7 +89,7 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.69
+    Version 1.0.70
     Author: Sam Pursglove
     Last modified: 18 June 2026
 
@@ -1864,7 +1864,7 @@ function Collect-ServerFeatures {
             Select-Object PSComputerName,Name,DisplayName,Description,InstallState,Parent,Depth,Path,FeatureType |
 	        Export-Csv -Path windows_server_features.csv -Append -NoTypeInformation
 
-        Write-Host "Remoting Server: Removing PowerShell sessions."
+        Write-Host "Remoting Server: Removing PowerShell server sessions."
         $serverSessions | Remove-PSSession
     
     # server features local collection
