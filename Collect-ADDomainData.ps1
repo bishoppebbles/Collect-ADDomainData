@@ -89,7 +89,7 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.68
+    Version 1.0.69
     Author: Sam Pursglove
     Last modified: 18 June 2026
 
@@ -1260,7 +1260,7 @@ function Collect-RemoteSystemData {
     
     # Collect domain computer objects or retry systems that previously failed WinRM connection attempts
     if($FailedWinRM) {
-        Write-Host "Active Directory: Getting previously failed PSRemoting domain computer objects."
+        Write-Host "Remoting: Getting previously failed PSRemoting domain computer objects."
         $computers = Try-FailedWinRM $DN
     
     # Collect computer objects based on a user supplied list of target systems, does not perform any AD lookups
@@ -1268,7 +1268,7 @@ function Collect-RemoteSystemData {
         $computers = $SystemList
     
     } else {
-        Write-Host "Active Directory: Getting domain computer objects."
+        Write-Host "Remoting: Getting domain computer objects."
         $computers = Get-DomainComputerObjects $DN
 
         # Only export domain computer account info on the first collection
@@ -1277,7 +1277,7 @@ function Collect-RemoteSystemData {
 
     # ensure computer objects exist before proceeding, otherwise exit the function
     if($computers -eq $null) {
-        Write-Host "Active Directory: No computer objects found, exiting remote collection."
+        Write-Host "Remoting: No computer objects found, exiting remote collection."
         return
     }
 
@@ -1785,7 +1785,7 @@ function Collect-ServerFeatures {
     if (-not $LocalCollectionOnly) {
         # Collect server domain computer objects or retry systems that previously failed WinRM connection attempts
         if($FailedWinRM) {
-            Write-Host "Active Directory: Getting previously failed PSRemoting domain computer objects."
+            Write-Host "Remoting Server: Getting previously failed PSRemoting domain computer objects."
             $winServers = Try-FailedWinRM $DN -ServersOnly
         
         # Collect computer objects based on a user supplied list of target server systems, does not perform any AD lookups
@@ -1793,18 +1793,18 @@ function Collect-ServerFeatures {
             $winServers = $SystemList
         
         } else {
-            Write-Host "Active Directory: Getting server OS domain computer objects."
+            Write-Host "Remoting Server: Getting server OS domain computer objects."
             $winServers = Get-DomainComputerObjects $DN -ServersOnly
         }
     
         # ensure computer objects exist before proceeding, otherwise exit the function
         if($winServers -eq $null) {
-            Write-Host "Active Directory: No server computer objects found, exiting remote server collection."
+            Write-Host "Remoting Server: No server computer objects found, exiting remote server collection."
             return
         }
 
         # Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
-        Write-Host "Remoting: Creating PowerShell server sessions."
+        Write-Host "Remoting Server: Creating PowerShell server sessions."
          
 
         if(-not $scipt:sessArgs) {
@@ -1836,12 +1836,12 @@ function Collect-ServerFeatures {
         $totalSessions = ($serverSessions | Measure-Object).Count
         
         if($totalSessions -eq 0) {
-            Write-Host "Remoting: $totalSessions PowerShell server sessions created, exiting remote server collection."
+            Write-Host "Remoting Server: $totalSessions PowerShell server sessions created, exiting remote server collection."
             return
         } elseif($totalSessions -eq 1) {
-            Write-Host "Remoting: $totalSessions PowerShell server session created."
+            Write-Host "Remoting Server: $totalSessions PowerShell server session created."
         } else {
-            Write-Host "Remoting: $totalSessions PowerShell server sessions created."
+            Write-Host "Remoting Server: $totalSessions PowerShell server sessions created."
         }
 
 
@@ -1859,12 +1859,12 @@ function Collect-ServerFeatures {
         }
 
         # Windows Server installed features
-        Write-Host "Server: Getting installed features."
+        Write-Host "Remoting Server: Getting installed features."
         Invoke-Command -Session $serverSessions -ScriptBlock {Get-WindowsFeature | Where-Object {$_.InstallState -eq 'Installed'} | Select-Object Name,DisplayName,Description,InstallState,Parent,Depth,Path,FeatureType} | 
             Select-Object PSComputerName,Name,DisplayName,Description,InstallState,Parent,Depth,Path,FeatureType |
 	        Export-Csv -Path windows_server_features.csv -Append -NoTypeInformation
 
-        Write-Host "Server: Removing PowerShell sessions."
+        Write-Host "Remoting Server: Removing PowerShell sessions."
         $serverSessions | Remove-PSSession
     
     # server features local collection
@@ -1881,7 +1881,7 @@ function Collect-ServerFeatures {
 
 function Collect-DHCPLeases {
     Param($server)
-    Write-Host "Server: Getting DHCP leases."
+    Write-Host "DHCP: Getting DHCP leases."
 #        $dhcp = Get-CimInstance Win32_NetworkAdapterConfiguration -Filter "DHCPEnabled=$true" | 
 #                    Where-Object {$_.DHCPServer -like "10.*" -or $_.DHCPServer -like "172.*" -or $_.DHCPServer -like "192.168.*"}
     
@@ -1897,7 +1897,7 @@ function Collect-DHCPLeases {
 	 		    Export-Csv dhcp_leases.csv -Append -NoTypeInformation
         }
    	} else { 
-   		Write-Host 'DHCP cmdlets are not available.  Skipping DHCP data queries.' 
+   		Write-Host 'DHCP: DHCP cmdlets are unavailable.  Skipping DHCP data queries.' 
 	}
 }
 
