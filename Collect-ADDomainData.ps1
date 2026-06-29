@@ -89,9 +89,9 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.70
+    Version 1.0.71
     Author: Sam Pursglove
-    Last modified: 18 June 2026
+    Last modified: 29 June 2026
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -624,6 +624,253 @@ function getServices {
 }
 
 
+# Get SMB share permissions
+function getSmbSharePermissions {
+
+    foreach($share in (Get-SmbShare)) {
+        $sharePath  = $share | Get-SmbShareAccess
+
+        foreach($path in $sharePath) {
+            # output as a hashtable and not a PSCustomObject to avoid Constrained Language Mode issues
+            @{
+                PSComputerName       = $($share.PSComputerName)
+                Name                 = $($path.Name)
+                AccountName          = $($path.AccountName)
+                AccessControlType    = $($path.AccessControlType)
+                AccessRight          = $($path.AccessRight)
+                Path                 = $($share.Path)
+                Description          = $($share.Description)
+                ShareType            = $($share.ShareType)
+                ShareState           = $($share.ShareState)
+                EncryptData          = $($share.EncryptData)
+                CurrentUsers         = $($share.CurrentUsers)
+                FolderEnumerationMode= $($share.FolderEnumerationMode)
+            }
+        }
+    }
+}
+
+
+# Query detailed Dell (for systems ~2018 and newer) and HP UEFI configuration settings
+function getDellHpUefiData {  
+    $Manufacturer = (Get-CimInstance -Namespace root\cimv2 -ClassName Win32_BIOS -OperationTimeoutSec 20).Manufacturer
+
+    # Dell UEFI collection will only work on systems that are ~2018 or newer
+    if ($Manufacturer -like "*Dell*") { 
+        # Get-WmiObject -Namespace root\dcim\sysman -Class "__NAMESPACE" -Recurse
+        # Get-CimClass -Namespace root\dcim\sysman\biosattributes | Select-Object -ExpandProperty CimClassName
+
+$filterDell = @"
+AttributeName = 'SecureBoot'
+OR AttributeName = 'Microphone'
+OR AttributeName = 'InternalSpeaker'
+OR AttributeName = 'WirelessLan'
+OR AttributeName = 'BluetoothDevice'
+OR AttributeName = 'TpmSecurity'
+OR AttributeName = 'StrongPassword'
+OR AttributeName = 'PwdUpperCaseRqd'
+OR AttributeName = 'PwdDigitRqd'
+OR AttributeName = 'PwdSpecialCharRqd'
+OR AttributeName = 'Virtualization'
+OR AttributeName = 'PreBootDma'
+"@
+
+        # hash table created to hold all possible output to avoid data truncation to CSV
+        $dell = [ordered]@{
+            PSComputerName   = ''
+            Manufacturer     = ''
+            AdminPw          = ''
+            AdminMinPwLen    = ''
+            AdminMaxPwLen    = ''
+            SystemPw         = ''
+            SystemMinPwLen   = ''
+            SystemMaxPwLen   = ''
+            StrongPassword   = ''
+            PwdUpperCaseRqd  = ''
+            PwdDigitRqd      = ''
+            PwdSpecialCharRqd= ''
+            TpmSecurity      = ''
+            SecureBoot       = ''
+            Virtualization   = ''
+            PreBootDma       = ''
+            UefiBootOrder    = ''
+            LegacyBootOrder  = ''
+            Microphone       = ''
+            InternalSpeaker  = ''
+            WirelessLan      = ''
+            BluetoothDevice  = ''
+        }
+
+        $dell['Manufacturer'] = 'Dell'
+        $dell['PSComputerName'] = $env:COMPUTERNAME
+        
+        # Admin and system password configuration
+        Get-CimInstance -Namespace root\dcim\sysman\wmisecurity `
+                        -ClassName PasswordObject `
+                        -Filter "NameId = 'Admin' OR NameId = 'System'" `
+                        -OperationTimeoutSec 20 |
+            ForEach-Object {
+                if($_.NameId -eq 'Admin') {
+                    $dell['AdminPw'] = if ($_.IsPasswordSet -eq 1) {'True'} else {'False'}
+                    $dell['AdminMinPwLen'] = $_.MinimumPasswordLength
+                    $dell['AdminMaxPwLen'] = $_.MaximumPasswordLength
+                } elseif($_.NameId -eq 'System') {
+                    $dell['SystemPw'] = if ($_.IsPasswordSet -eq 1) {'True'} else {'False'}
+                    $dell['SystemMinPwLen'] = $_.MinimumPasswordLength
+                    $dell['SystemMaxPwLen'] = $_.MaximumPasswordLength
+                }
+            }
+ 
+        # AttributeName|DisplayName (PasswordBypass,PasswordLock), CurrentValue
+        Get-CimInstance -Namespace root\dcim\sysman\biosattributes `
+                        -ClassName EnumerationAttribute `
+                        -Filter $filterDell `
+                        -OperationTimeoutSec 20 | 
+            ForEach-Object{ 
+                if($_.AttributeName -eq 'SecureBoot'        -or
+		            $_.AttributeName -eq 'Microphone'        -or
+		            $_.AttributeName -eq 'InternalSpeaker'   -or
+		            $_.AttributeName -eq 'WirelessLan'       -or
+		            $_.AttributeName -eq 'BluetoothDevice'   -or
+		            $_.AttributeName -eq 'TpmSecurity'       -or
+		            $_.AttributeName -eq 'StrongPassword'    -or
+		            $_.AttributeName -eq 'PwdUpperCaseRqd'   -or
+		            $_.AttributeName -eq 'PwdDigitRqd'       -or
+		            $_.AttributeName -eq 'PwdSpecialCharRqd' -or
+		            $_.AttributeName -eq 'Virtualization'    -or
+		            $_.AttributeName -eq 'PreBootDma' ) {
+                        $dell[$($_.AttributeName)] = $_.CurrentValue
+                }
+            }
+
+        # Boot order configuration
+        Get-CimInstance -Namespace root\dcim\sysman\biosattributes `
+                        -ClassName BootOrder `
+                        -Filter "BootListType = 'Legacy' OR BootListType = 'UEFI'" `
+                        -OperationTimeoutSec 20 |
+            ForEach-Object {
+                if($_.BootListType -eq 'Legacy') {
+                    $dell['LegacyBootOrder'] = $_.BootOrder -join ','
+                } elseif($_.BootListType -eq 'UEFI') {
+                    $dell['UefiBootOrder'] = $_.BootOrder -join ','
+                }
+            }
+
+        $dell
+
+    } elseif ($Manufacturer -like "*HP*") {
+
+$filterHp = @"
+Name = 'Setup Password'
+OR Name = 'Power-On Password'
+OR Name = 'Secure Boot'
+OR Name = 'TPM Specification Version'
+OR Name = 'TPM State'
+OR Name = 'USB Storage Boot'
+OR Name = 'CD-ROM Boot'
+OR Name = 'Network (PXE) Boot'
+OR Name = 'IPv6 during UEFI Boot'
+OR Name = 'UEFI Boot Order'
+OR Name = 'Legacy Boot Order'
+OR Name = 'Configure Legacy Support and Secure Boot'
+OR Name = 'Virtualization Technology (VTx)'
+OR Name = 'Virtualization Technology for Directed I/O (VTd)'
+OR Name = 'Restrict USB Devices'
+OR Name = 'DMA Protection'
+OR Name = 'Pre-boot DMA protection'
+OR Name = 'Password Minimum Length'
+OR Name = 'At least one lower case character is required in Administrator and User passwords'
+OR Name = 'At least one upper case character is required in Administrator and User passwords'
+OR Name = 'At least one number is required in Administrator and User passwords'
+OR Name = 'At least one symbol is required in Administrator and User passwords'
+OR Name = 'Internal Speakers'
+OR Name = 'Microphone'
+OR Name = 'M.2 WLAN/BT'
+"@
+
+        # hash table created to hold all possible output to avoid data truncation to CSV
+        $hp = [ordered]@{
+            PSComputerName   = ''
+            Manufacturer     = ''
+            AdminPw          = ''
+            AdminMinPwLen    = ''
+            AdminMaxPwLen    = ''
+            SystemPw         = ''
+            SystemMinPwLen   = ''
+            SystemMaxPwLen   = ''
+            'Password Minimum Length'                  = ''
+            'At least one upper case character is required in Administrator and User passwords'= ''
+            'At least one lower case character is required in Administrator and User passwords'= ''
+            'At least one number is required in Administrator and User passwords'= ''
+            'At least one symbol is required in Administrator and User passwords'= ''
+            'TPM Specification Version'                = ''
+            'TPM State'                                = ''
+            'Secure Boot'                              = ''
+            'Virtualization Technology (VTx)'          = ''
+            'Virtualization Technology for Directed I/O (VTd)'= ''
+            'DMA Protection'                           = ''
+            'Pre-boot DMA Protection'                  = ''
+            'Restrict USB Devices'                     = ''
+            'Configure Legacy Support and Secure Boot' = ''
+            'UEFI Boot Order'                          = ''
+            'Legacy Boot Order'                        = ''
+            'CD-ROM Boot'                              = ''
+            'USB Storage Boot'                         = ''
+            'Network (PXE) Boot'                       = ''
+            'IPv6 during UEFI Boot'                    = ''
+            'Internal Speakers'                        = ''
+            'Microphone'                               = ''
+            'M.2 WLAN/BT'                              = ''
+        }
+
+        $hp['Manufacturer'] = 'HP'
+        $hp['PSComputerName'] = $env:COMPUTERNAME
+        Get-CimInstance -Namespace root\hp\InstrumentedBIOS `
+                        -ClassName HP_BIOSSetting `
+                        -Filter $filterHp `
+                        -OperationTimeoutSec 20 |
+            ForEach-Object{ 
+                if($_.Name -eq 'Setup Password') {
+                    $hp['AdminPw'] = if ($_.IsSet -eq 1) {'True'} elseif ($_.IsSet -eq 0) {'False'}
+                    $hp['AdminMinPwLen'] = $_.MinLength
+                    $hp['AdminMaxPwLen'] = $_.MaxLength
+                } elseif($_.Name -eq 'Power-On Password') {
+                    $hp['SystemPw'] = if ($_.IsSet -eq 1) {'True'} elseif ($_.IsSet -eq 0) {'False'}
+                    $hp['SystemMinPwLen'] = $_.MinLength
+                    $hp['SystemMaxPwLen'] = $_.MaxLength
+                } elseif($_.Name -eq 'Legacy Boot Order'         -or
+                            $_.Name -eq 'Password Minimum Length'   -or
+                            $_.Name -eq 'TPM Specification Version' -or
+                            $_.Name -eq 'UEFI Boot Order') {
+                    $hp[$($_.Name)] = $_.Value
+                }elseif($_.Name -eq 'At least one lower case character is required in Administrator and User passwords' -or
+                        $_.Name -eq 'At least one number is required in Administrator and User passwords'               -or
+                        $_.Name -eq 'At least one symbol is required in Administrator and User passwords'               -or
+                        $_.Name -eq 'At least one upper case character is required in Administrator and User passwords' -or
+                        $_.Name -eq 'Configure Legacy Support and Secure Boot' -or
+                        $_.Name -eq 'CD-ROM Boot'                              -or
+                        $_.Name -eq 'DMA Protection'                           -or
+                        $_.Name -eq 'Pre-boot DMA Protection'                  -or
+                        $_.Name -eq 'IPv6 during UEFI Boot'                    -or
+                        $_.Name -eq 'Network (PXE) Boot'                       -or
+                        $_.Name -eq 'Restrict USB Devices'                     -or
+                        $_.Name -eq 'Secure Boot'                              -or
+                        $_.Name -eq 'TPM State'                                -or
+                        $_.Name -eq 'USB Storage Boot'                         -or
+                        $_.Name -eq 'Internal Speakers'                        -or
+                        $_.Name -eq 'Microphone'                               -or
+                        $_.Name -eq 'M.2 WLAN/BT'                              -or
+                        $_.Name -eq 'Virtualization Technology (VTx)'          -or
+                        $_.Name -eq 'Virtualization Technology for Directed I/O (VTd)') {
+                    $hp[$($_.Name)] = $_.CurrentValue
+                }
+            }
+
+        $hp
+    }
+}
+
+
 # Determine AD computer objects that did not connect with WinRM
 function Get-FailedWinRMSessions {
     param(
@@ -849,7 +1096,77 @@ function Collect-LocalSystemData {
                       PowerPlatformRole |
         Export-Csv -Path system_info.csv -Append -NoTypeInformation
 
+
+    # Dell and HP UEFI information
+    Write-Host "Local: Getting UEFI information."
+    getDellHpUefiData | 
+        ForEach-Object {
+            if($_['Manufacturer'] -eq 'Dell') {
+            
+                [pscustomobject]$_ |
+                Select-Object PSComputerName,
+                                Manufacturer,
+                                AdminPw,
+                                AdminMinPwLen,
+                                AdminMaxPwLen,
+                                SystemPw,
+                                SystemMinPwLen,
+                                SystemMaxPwLen,
+                                StrongPassword,
+                                PwdUpperCaseRqd,
+                                PwdDigitRqd,
+                                PwdSpecialCharRqd,
+                                TpmSecurity,
+                                SecureBoot,
+                                Virtualization,
+                                PreBootDma,
+                                UefiBootOrder,
+                                LegacyBootOrder,
+                                Microphone,
+                                InternalSpeaker,
+                                WirelessLan,
+                                BluetoothDevice |                          
+                    Export-Csv uefi_dell.csv -Append -NoTypeInformation
+        
+            } elseif($_['Manufacturer'] -eq 'HP') {
+            
+                [pscustomobject]$_ | 
+                Select-Object PSComputerName,
+                                Manufacturer,
+                                AdminPw,
+                                AdminMinPwLen,
+                                AdminMaxPwLen,
+                                SystemPw,
+                                SystemMinPwLen,
+                                SystemMaxPwLen,
+                                @{Name='PwMinLen'; Expression={$_.'Password Minimum Length'}},
+                                @{Name='PwdUpperCaseRqdAdminAndUser,'; Expression={$_.'At least one upper case character is required in Administrator and User passwords'}},
+                                @{Name='PwdLowerCaseRqdAdminAndUser'; Expression={$_.'At least one lower case character is required in Administrator and User passwords'}},
+                                @{Name='PwdSpecialRqdAdminAndUser'; Expression={$_.'At least one number is required in Administrator and User passwords'}},
+                                @{Name='PwdDigitRqdAdminAndUser'; Expression={$_.'At least one symbol is required in Administrator and User passwords'}},
+                                @{Name='TpmVersion'; Expression={$_.'TPM Specification Version'}},
+                                @{Name='TpmSecurity'; Expression={$_.'TPM State'}},
+                                @{Name='SecureBoot'; Expression={$_.'Secure Boot'}},
+                                @{Name='Virtualization-VTx'; Expression={$_.'Virtualization Technology (VTx)'}},
+                                @{Name='Virtualization-VTd'; Expression={$_.'Virtualization Technology for Directed I/O (VTd)'}},
+                                @{Name='DmaProtection'; Expression={$_.'DMA Protection'}},
+                                @{Name='PreBootDma'; Expression={$_.'Pre-boot DMA Protection'}},
+                                @{Name='RestrictUsbDevices'; Expression={$_.'Restrict USB Devices'}},
+                                @{Name='ConfigLegacySupportAndSecureBoot'; Expression={$_.'Configure Legacy Support and Secure Boot'}},
+                                @{Name='UefiBootOrder'; Expression={$_.'UEFI Boot Order'}},
+                                @{Name='LegacyBootOrder'; Expression={$_.'Legacy Boot Order'}},
+                                @{Name='CdromBoot'; Expression={$_.'CD-ROM Boot'}},
+                                @{Name='UsbBoot'; Expression={$_.'USB Storage Boot'}},
+                                @{Name='PxeBoot'; Expression={$_.'Network (PXE) Boot'}},
+                                @{Name='IPv6DuringUefiBoot'; Expression={$_.'IPv6 during UEFI Boot'}},
+                                @{Name='InternalSpeaker'; Expression={$_.'Internal Speakers'}},
+                                Microphone,
+                                @{Name='M2WirelessBluetooth'; Expression={$_.'M.2 WLAN/BT'}} |
+                Export-Csv uefi_hp.csv -Append -NoTypeInformation
+            }
+        }
     
+
     # Local system hot fix information
     Write-Host "Local: Getting system hot fix information."
     $hotFixes.OsHotFixes | 
@@ -970,18 +1287,21 @@ function Collect-LocalSystemData {
         Export-Csv -Path hard_drive_storage.csv -Append -NoTypeInformation
 
     
-    # Shares
-    Write-Host "Local: Getting shares."
-    Get-SmbShare | 
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,Path,Description,EncryptData,CurrentUsers,ShareType |
-        Export-Csv -Path shares.csv -Append -NoTypeInformation
-
-    
     # Share permissions
-    Write-Host "Local: Getting share permissions."
-    Get-SmbShare | 
-        Get-SmbShareAccess | 
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,AccountName,AccessControlType,AccessRight |
+    Write-Host "Local: Geting share permissions."
+    getSmbSharePermissions |
+        Select-Object PSComputerName,
+                      @{Name='Name'; Expression={$_.Name}},
+                      @{Name='AccountName'; Expression={$_.AccountName}},
+                      @{Name='AccessControlType'; Expression={$_.AccessControlType}},
+                      @{Name='AccessRight'; Expression={$_.AccessRight}},
+                      @{Name='Path'; Expression={$_.Path}},
+                      @{Name='Description'; Expression={$_.Description}},
+                      @{Name='ShareType'; Expression={$_.ShareType}},
+                      @{Name='ShareState'; Expression={$_.ShareState}},
+                      @{Name='EncryptData'; Expression={$_.EncryptData}},
+                      @{Name='CurrentUsers'; Expression={$_.CurrentUsers}},
+                      @{Name='FolderEnumerationMode'; Expression={$_.FolderEnumerationMode}} | 
         Export-Csv -Path share_permissions.csv -Append -NoTypeInformation
 
     
@@ -1385,7 +1705,11 @@ function Collect-RemoteSystemData {
             Write-Host "Remoting: $totalSessions PowerShell sessions created."
         }
 
-
+        # If there are over 200 active PS remoting sessions, double the simultaneous active remote sessions from 32 to 64
+        $simultaneouPsRemoteSess = 32
+        if($totalSessions -gt 200) {
+            $simultaneouPsRemoteSess = 64
+        }
 
         # increment the range for the next batch of systems
         $compsLow += $compsInc
@@ -1396,7 +1720,9 @@ function Collect-RemoteSystemData {
         Write-Host "Remoting: Getting local group memberships."
         Get-BrokenPSSessions 'LocalGroupMembers'
 
-        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getLocalGroupMembers} |
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ThrottleLimit $simultaneouPsRemoteSess `
+                       -ScriptBlock ${function:getLocalGroupMembers} |
             Select-Object PSComputerName,
                           @{Name='GroupName'; Expression={$_.GroupName}},
                           @{Name='Name'; Expression={$_.Name}},
@@ -1412,7 +1738,9 @@ function Collect-RemoteSystemData {
         Write-Host "Remoting: Getting local user accounts."
         Get-BrokenPSSessions 'LocalUsers'
 
-        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getLocalUsers} |
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ThrottleLimit $simultaneouPsRemoteSess `
+                       -ScriptBlock ${function:getLocalUsers} |
             Select-Object PSComputerName,
 					      Name,
 	   				      SID,
@@ -1433,6 +1761,7 @@ function Collect-RemoteSystemData {
         Get-BrokenPSSessions 'Process'
 
         Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ThrottleLimit $simultaneouPsRemoteSess `
                        -ScriptBlock {
                             Get-Process -IncludeUserName -ErrorAction SilentlyContinue | 
                             Select-Object Name,
@@ -1455,6 +1784,7 @@ function Collect-RemoteSystemData {
             Get-BrokenPSSessions 'Modules'
 
             Invoke-Command -Session (Get-OpenPSSessions) `
+                           -ThrottleLimit $simultaneouPsRemoteSess `
                            -ScriptBlock {
                                 $modTracker = @{}
 
@@ -1491,7 +1821,9 @@ function Collect-RemoteSystemData {
         Write-Host "Remoting: Getting scheduled tasks."
         Get-BrokenPSSessions 'ScheduledTask'
 
-        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getScheduledTasks} |
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ThrottleLimit $simultaneouPsRemoteSess `
+                       -ScriptBlock ${function:getScheduledTasks} |
         	Select-Object PSComputerName,
                       @{Name='TaskName'; Expression={$_.TaskName}},
                       @{Name='TaskPath'; Expression={$_.TaskPath}},
@@ -1511,7 +1843,9 @@ function Collect-RemoteSystemData {
         Write-Host "Remoting: Getting services."
         Get-BrokenPSSessions 'Services'
 
-        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getServices} |
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ThrottleLimit $simultaneouPsRemoteSess `
+                       -ScriptBlock ${function:getServices} |
             Select-Object PSComputerName,
                       @{name='Name'; expression={$_.Name}},
                       @{name='DisplayName'; expression={$_.DisplayName}},
@@ -1531,7 +1865,9 @@ function Collect-RemoteSystemData {
         Write-Host "Remoting: Getting network connections."
         Get-BrokenPSSessions 'Network'
 
-        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:netConnects} |
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ThrottleLimit $simultaneouPsRemoteSess `
+                       -ScriptBlock ${function:netConnects} |
             Select-Object PSComputerName,Date,Time,LocalAddress,LocalPort,RemoteAddress,RemotePort,State,OwningProcess,ProcessName |
             Export-Csv -Path net.csv -Append -NoTypeInformation
 
@@ -1541,6 +1877,7 @@ function Collect-RemoteSystemData {
         Get-BrokenPSSessions 'Programs64'
 
         Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ThrottleLimit $simultaneouPsRemoteSess `
                        -ScriptBlock {
                             Get-ChildItem -Path 'C:\Program Files' | 
                             Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'64-bit'}}
@@ -1554,6 +1891,7 @@ function Collect-RemoteSystemData {
         Get-BrokenPSSessions 'Programs32'
 
         Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ThrottleLimit $simultaneouPsRemoteSess `
                        -ScriptBlock {
                             Get-ChildItem -Path 'C:\Program Files (x86)' | 
                             Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'32-bit'}}
@@ -1566,7 +1904,9 @@ function Collect-RemoteSystemData {
         Write-Host "Remoting: Getting system information."
         Get-BrokenPSSessions 'SystemInformation'
 
-        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-ComputerInfo -ErrorAction SilentlyContinue} |
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ThrottleLimit $simultaneouPsRemoteSess `
+                       -ScriptBlock {Get-ComputerInfo -ErrorAction SilentlyContinue} |
             Select-Object PSComputerName,
                           WindowsCurrentVersion,
                           WindowsEditionId,
@@ -1608,6 +1948,7 @@ function Collect-RemoteSystemData {
         Get-BrokenPSSessions 'SystemHotFix'
     
         Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ThrottleLimit $simultaneouPsRemoteSess `
                        -ScriptBlock {
                             (Get-ComputerInfo).OsHotFixes | 
                                 ForEach-Object {
@@ -1625,11 +1966,91 @@ function Collect-RemoteSystemData {
             Export-Csv -Path hotfixes.csv -Append -NoTypeInformation
 
 
+        # Dell and HP UEFI information
+        Write-Host "Remoting: Getting UEFI information."
+        Get-BrokenPSSessions 'UEFI'
+
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ThrottleLimit $simultaneouPsRemoteSess `
+                       -ScriptBlock ${function:getDellHpUefiData} | 
+            ForEach-Object {
+                if($_['Manufacturer'] -eq 'Dell') {
+            
+                    [pscustomobject]$_ |
+                    Select-Object PSComputerName,
+                                  Manufacturer,
+                                  AdminPw,
+                                  AdminMinPwLen,
+                                  AdminMaxPwLen,
+                                  SystemPw,
+                                  SystemMinPwLen,
+                                  SystemMaxPwLen,
+                                  StrongPassword,
+                                  PwdUpperCaseRqd,
+                                  PwdDigitRqd,
+                                  PwdSpecialCharRqd,
+                                  TpmSecurity,
+                                  SecureBoot,
+                                  Virtualization,
+                                  PreBootDma,
+                                  UefiBootOrder,
+                                  LegacyBootOrder,
+                                  Microphone,
+                                  InternalSpeaker,
+                                  WirelessLan,
+                                  BluetoothDevice |                          
+                        Export-Csv uefi_dell.csv -Append -NoTypeInformation
+        
+                } elseif($_['Manufacturer'] -eq 'HP') {
+            
+                    [pscustomobject]$_ | 
+                    Select-Object PSComputerName,
+                                  Manufacturer,
+                                  AdminPw,
+                                  AdminMinPwLen,
+                                  AdminMaxPwLen,
+                                  SystemPw,
+                                  SystemMinPwLen,
+                                  SystemMaxPwLen,
+                                  @{Name='PwMinLen'; Expression={$_.'Password Minimum Length'}},
+                                  @{Name='PwdUpperCaseRqdAdminAndUser,'; Expression={$_.'At least one upper case character is required in Administrator and User passwords'}},
+                                  @{Name='PwdLowerCaseRqdAdminAndUser'; Expression={$_.'At least one lower case character is required in Administrator and User passwords'}},
+                                  @{Name='PwdSpecialRqdAdminAndUser'; Expression={$_.'At least one number is required in Administrator and User passwords'}},
+                                  @{Name='PwdDigitRqdAdminAndUser'; Expression={$_.'At least one symbol is required in Administrator and User passwords'}},
+                                  @{Name='TpmVersion'; Expression={$_.'TPM Specification Version'}},
+                                  @{Name='TpmSecurity'; Expression={$_.'TPM State'}},
+                                  @{Name='SecureBoot'; Expression={$_.'Secure Boot'}},
+                                  @{Name='Virtualization-VTx'; Expression={$_.'Virtualization Technology (VTx)'}},
+                                  @{Name='Virtualization-VTd'; Expression={$_.'Virtualization Technology for Directed I/O (VTd)'}},
+                                  @{Name='DmaProtection'; Expression={$_.'DMA Protection'}},
+                                  @{Name='PreBootDma'; Expression={$_.'Pre-boot DMA Protection'}},
+                                  @{Name='RestrictUsbDevices'; Expression={$_.'Restrict USB Devices'}},
+                                  @{Name='ConfigLegacySupportAndSecureBoot'; Expression={$_.'Configure Legacy Support and Secure Boot'}},
+                                  @{Name='UefiBootOrder'; Expression={$_.'UEFI Boot Order'}},
+                                  @{Name='LegacyBootOrder'; Expression={$_.'Legacy Boot Order'}},
+                                  @{Name='CdromBoot'; Expression={$_.'CD-ROM Boot'}},
+                                  @{Name='UsbBoot'; Expression={$_.'USB Storage Boot'}},
+                                  @{Name='PxeBoot'; Expression={$_.'Network (PXE) Boot'}},
+                                  @{Name='IPv6DuringUefiBoot'; Expression={$_.'IPv6 during UEFI Boot'}},
+                                  @{Name='InternalSpeaker'; Expression={$_.'Internal Speakers'}},
+                                  Microphone,
+                                  @{Name='M2WirelessBluetooth'; Expression={$_.'M.2 WLAN/BT'}} |
+                    Export-Csv uefi_hp.csv -Append -NoTypeInformation
+                }
+            }
+
+
         # BitLocker information
         Write-Host "Remoting: Getting BitLocker information."
         Get-BrokenPSSessions 'BitLocker'
 
-        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {if(Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue) {Get-BitLockerVolume -ErrorAction SilentlyContinue} } |
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ThrottleLimit $simultaneouPsRemoteSess `
+                       -ScriptBlock {
+                            if(Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue) {
+                                Get-BitLockerVolume -ErrorAction SilentlyContinue
+                            }
+                        } |
             Select-Object PSComputerName,
                           MountPoint,
                           EncryptionMethod,
@@ -1651,7 +2072,9 @@ function Collect-RemoteSystemData {
         Write-Host "Remoting: Getting antimalware software information."
         Get-BrokenPSSessions 'Antimalware'
         
-        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-MpComputerStatus -ErrorAction SilentlyContinue} |
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ThrottleLimit $simultaneouPsRemoteSess `
+                       -ScriptBlock {Get-MpComputerStatus -ErrorAction SilentlyContinue} |
             Select-Object PSComputerName,
                           AMEngineVersion,
                           AMProductVersion,
@@ -1699,7 +2122,9 @@ function Collect-RemoteSystemData {
         Write-Host "Remoting: Getting physical disk information."
         Get-BrokenPSSessions 'PhysicalDisk'
         
-        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock ${function:getPhysicalDiskInfo} |
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ThrottleLimit $simultaneouPsRemoteSess `
+                       -ScriptBlock ${function:getPhysicalDiskInfo} |
             Select-Object PSComputerName,
                           OperationalStatus,
                           HealthStatus,
@@ -1721,7 +2146,9 @@ function Collect-RemoteSystemData {
         Write-Host "Remoting: Getting hard drive storage information."
         Get-BrokenPSSessions 'HardDriveInformation'
 
-        Invoke-Command -Session (Get-OpenPSSessions) -ScriptBlock {Get-PSDrive -PSProvider FileSystem} |
+        Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ThrottleLimit $simultaneouPsRemoteSess `
+                       -ScriptBlock {Get-PSDrive -PSProvider FileSystem} |
             Select-Object PSComputerName,
                           Name,
                           Root,
@@ -1733,38 +2160,34 @@ function Collect-RemoteSystemData {
             Export-Csv -Path hard_drive_storage.csv -Append -NoTypeInformation
 
 
-        # Shares
-        Write-Host "Remoting: Getting shares."
-        Get-BrokenPSSessions 'Shares'
-
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ScriptBlock {
-                            Get-SmbShare | 
-                            Select-Object Name,Path,Description,EncryptData,CurrentUsers,ShareType
-                       } |
-            Select-Object PSComputerName,Name,Path,Description,EncryptData,CurrentUsers,ShareType |
-            Export-Csv -Path shares.csv -Append -NoTypeInformation
-
-
         # Share permissions
         Write-Host "Remoting: Getting share permissions."
         Get-BrokenPSSessions 'SharePermissions'
-
+        
         Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ScriptBlock {
-                            Get-SmbShare | 
-                            Get-SmbShareAccess | 
-                            Select-Object Name,AccountName,AccessControlType,AccessRight
-                       } |
-	        Select-Object PSComputerName,Name,AccountName,AccessControlType,AccessRight |
+                       -ThrottleLimit $simultaneouPsRemoteSess `
+                       -ScriptBlock ${function:getSmbSharePermissions} |
+            Select-Object @{Name='PSComputerName'; Expression={$_.PSComputerName}},
+                          @{Name='Name'; Expression={$_.Name}},
+                          @{Name='AccountName'; Expression={$_.AccountName}},
+                          @{Name='AccessControlType'; Expression={$_.AccessControlType}},
+                          @{Name='AccessRight'; Expression={$_.AccessRight}},
+                          @{Name='Path'; Expression={$_.Path}},
+                          @{Name='Description'; Expression={$_.Description}},
+                          @{Name='ShareType'; Expression={$_.ShareType}},
+                          @{Name='ShareState'; Expression={$_.ShareState}},
+                          @{Name='EncryptData'; Expression={$_.EncryptData}},
+                          @{Name='CurrentUsers'; Expression={$_.CurrentUsers}},
+                          @{Name='FolderEnumerationMode'; Expression={$_.FolderEnumerationMode}} | 
             Export-Csv -Path share_permissions.csv -Append -NoTypeInformation
-
+    
 
         # Downloads, Documents, and Desktop files
         Write-Host "Remoting: Getting Documents, Desktop, and Downloads file information."
         Get-BrokenPSSessions 'Files'
 
         Invoke-Command -Session (Get-OpenPSSessions) `
+                       -ThrottleLimit $simultaneouPsRemoteSess `
                        -ScriptBlock {
                             Get-ChildItem -Path 'C:\Users\*\Downloads\','C:\Users\*\Documents\','C:\Users\*\Desktop\' -Recurse -ErrorAction SilentlyContinue | 
                             Select-Object Directory,Name,Extension,CreationTime,LastAccessTime,LastWriteTime,Attributes
