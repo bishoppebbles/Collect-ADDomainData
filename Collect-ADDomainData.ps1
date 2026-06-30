@@ -21,9 +21,7 @@
     Limit the number of active PowerShell Remoting sessions.
 .PARAMETER LocalCollectionOnly
     Collect the datasets on the local system (does not use PowerShell remoting functionality).
-.PARAMETER IncludeModules
-    Collect process module data and hash the related image files.  Added as an option as the collection can be very slow in large environments.
-.PARAMETER CollectionType
+.PARAMETER CollectionTypes
     Option to change the collection sets.  The default is all collection types except for modules or NTFS share permissions.  Options include: All, LocalGroups, LocalUsers, Processes, ScheduledTasks, Services, NetConnects, 64bitProgs, 32bitProgs, SystemInfo, HotFix, Uefi, BitLocker, AntiMalware, PhysicalDisk, HdVolumeStorage, SharePerms, ShareNtfs, and LocalFiles.  Three special options include All, DefaultPlusModules, and DefaultPlusShareNtfs.
 .PARAMETER DHCPServer
     Specify the server name if collecting Windows DHCP server scope and lease information with other domain data.
@@ -91,7 +89,7 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.72
+    Version 1.0.73
     Author: Sam Pursglove
     Last modified: 30 June 2026
 
@@ -164,20 +162,12 @@ param (
     [Parameter(ParameterSetName='LocalServerFeature', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collects local server features only')]
     [Switch]$LocalCollectionOnly,
 
-    <#
-    [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Collect process module data and hashes')]
-    [Parameter(ParameterSetName='Migrated', Mandatory=$False, HelpMessage='Collect process module data and hashes')]
-    [Parameter(ParameterSetName='Local', Mandatory=$False, HelpMessage='Collect process module data and hashes')]
-    [Parameter(ParameterSetName='List', Mandatory=$False, HelpMessage='Collect process module data and hashes')]
-    [Switch]$IncludeModules,
-    #>
-
     [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Specify dataset collection (default: All except Modules and NTFS)')]
     [Parameter(ParameterSetName='Migrated', Mandatory=$False, HelpMessage='Specify dataset collection (default: All except Modules and NTFS)')]
     [Parameter(ParameterSetName='Local', Mandatory=$False, HelpMessage='Specify dataset collection (default: All except Modules and NTFS)')]
     [Parameter(ParameterSetName='List', Mandatory=$False, HelpMessage='Specify dataset collection (default: All except Modules and NTFS)')]
     [ValidateSet('All','LocalGroups','LocalUsers','Processes','Modules','ScheduledTasks','Services','NetConnects','64bitProgs','32bitProgs','SystemInfo','HotFix','Uefi','BitLocker','AntiMalware','PhysicalDisk','HdVolumeStorage','SharePerms','ShareNtfs','LocalFiles','DefaultPlusModules','DefaultPlusShareNtfs')]
-    [string[]]$CollectionType = @(),
+    [string[]]$CollectionTypes = @(),
 
     [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Use alternate, non-default smart card credentials')]
     [Parameter(ParameterSetName='Migrated', Mandatory=$False, HelpMessage='Use alternate, non-default smart card credentials')]
@@ -644,7 +634,6 @@ function getSmbSharePermissions {
         foreach($path in $sharePath) {
             # output as a hashtable and not a PSCustomObject to avoid Constrained Language Mode issues
             @{
-                PSComputerName       = $($share.PSComputerName)
                 Name                 = $($path.Name)
                 AccountName          = $($path.AccountName)
                 AccessControlType    = $($path.AccessControlType)
@@ -923,11 +912,57 @@ function Get-OpenPSSessions {
 }
 
 
+# Function that sets the type of datasets to be collected
+function setCollectionTypes {
+    Param([string[]]$colType)
+    
+    [string[]]$colTypeReturn = @()
+
+    # Set the baseline collection types (all except Modules and ShareNtfs permissions)
+    if (-not $colType -or $colType.Contains('All') -or $colType.Contains('DefaultPlusModules') -or $colType.Contains('DefaultPlusShareNtfs')) {
+        $colTypeReturn = @('LocalGroups','LocalUsers','Processes','ScheduledTasks','Services','NetConnects','64bitProg','32bitProg','SystemInfo','HotFix','Uefi','BitLocker','AntiMalware','PhysicalDisk','HdVolumeStorage','SharePerms','LocalFiles')
+
+        # collect All data types
+        if ($colType.Contains('All')) {
+            $colTypeReturn += 'Modules','ShareNtfs'
+        }
+    
+        # collect the default/baseline data type plus add Modules
+        if ($colType.Contains('DefaultPlusModules')) {
+            $colTypeReturn += 'Modules'
+
+            # added to get a weird user input edge case if they specify 'DefaultPlusModules','ShareNtfs' instead of doing All
+            if ($colType.Contains('ShareNtfs')) {
+                $colTypeReturn += 'ShareNtfs'
+            }
+        } 
+    
+        # collect the default/baseline data type plus add ShareNtfs
+        if ($colType.Contains('DefaultPlusShareNtfs')) {
+            $colTypeReturn += 'ShareNtfs'
+
+            # added to get a weird user input edge case if they specify 'DefaultPlusShareNtfs','Modules' instead of doing All
+            if ($colType.Contains('Modules')) {
+                $colTypeReturn += 'Modules'
+            }
+        }
+
+    # case where individual collection types are specified, simply return that
+    } else {
+        $colTypeReturn = $colType
+    }
+    
+    $colTypeReturn
+}
+
 
 # Pull data from the local system and append to the existing CSV files
 function Collect-LocalSystemData {
+    # Set the dataset to collect
+    $CollectionTypes = setCollectionTypes $CollectionTypes
+
     # Local Administrators group membership
-    if ($CollectionType.Contains('LocalGroups') -or $CollectionType.Contains('All')) {
+    if ($CollectionTypes.Contains('LocalGroups') -or $CollectionTypes.Contains('All')) {
         Write-Host "Local: Getting local group memberships."
         getLocalGroupMembers |
             Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
@@ -943,7 +978,7 @@ function Collect-LocalSystemData {
 
 
     # Local user accounts
-    if ($CollectionType.Contains('LocalUsers') -or $CollectionType.Contains('All')) {
+    if ($CollectionTypes.Contains('LocalUsers') -or $CollectionTypes.Contains('All')) {
         Write-Host "Local: Getting local user accounts."
         getLocalUsers | 
             Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
@@ -963,7 +998,7 @@ function Collect-LocalSystemData {
 
     
     # Processes
-    if ($CollectionType.Contains('Processes') -or $CollectionType.Contains('All')) {
+    if ($CollectionTypes.Contains('Processes') -or $CollectionTypes.Contains('All')) {
         # Check if the local session is running with elevated privileges
         Write-Host "Local: Getting processes."
         $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
@@ -987,7 +1022,7 @@ function Collect-LocalSystemData {
 
 
     # Modules (not collected by default)
-    if ($CollectionType.Contains('Modules') -or $CollectionType.Contains('All')) {
+    if ($CollectionTypes.Contains('Modules') -or $CollectionTypes.Contains('All')) {
         Write-Host "Local: Getting process modules."
         $modTracker = @{}
 
@@ -1019,7 +1054,7 @@ function Collect-LocalSystemData {
     }
 
     # Scheduled tasks
-    if ($CollectionType.Contains('ScheduledTasks') -or $CollectionType.Contains('All')) {
+    if ($CollectionTypes.Contains('ScheduledTasks') -or $CollectionTypes.Contains('All')) {
         Write-Host "Local: Getting scheduled tasks."
 	    getScheduledTasks |
             Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
@@ -1039,7 +1074,7 @@ function Collect-LocalSystemData {
 
 
     # Services
-    if ($CollectionType.Contains('Services') -or $CollectionType.Contains('All')) {
+    if ($CollectionTypes.Contains('Services') -or $CollectionTypes.Contains('All')) {
         Write-Host "Local: Getting services."
         getServices |
             Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
@@ -1059,7 +1094,7 @@ function Collect-LocalSystemData {
 
 
     # Network connections
-    if ($CollectionType.Contains('NetConnects') -or $CollectionType.Contains('All')) {
+    if ($CollectionTypes.Contains('NetConnects') -or $CollectionTypes.Contains('All')) {
         Write-Host "Local: Getting network connections."
         netConnects | 
             Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Date,Time,LocalAddress,LocalPort,RemoteAddress,RemotePort,State,OwningProcess,ProcessName |
@@ -1068,7 +1103,7 @@ function Collect-LocalSystemData {
 
     
     # 64-bit programs
-    if ($CollectionType.Contains('64bitProgs') -or $CollectionType.Contains('All')) {
+    if ($CollectionTypes.Contains('64bitProgs') -or $CollectionTypes.Contains('All')) {
         Write-Host "Local: Getting 64-bit programs."
         Get-ChildItem -Path 'C:\Program Files' |
             Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'64-bit'}} |
@@ -1077,7 +1112,7 @@ function Collect-LocalSystemData {
 
     
     # 32-bit programs
-    if ($CollectionType.Contains('32bitProgs') -or $CollectionType.Contains('All')) {
+    if ($CollectionTypes.Contains('32bitProgs') -or $CollectionTypes.Contains('All')) {
         Write-Host "Local: Getting 32-bit programs."
         Get-ChildItem -Path 'C:\Program Files (x86)' |
             Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'32-bit'}} |
@@ -1086,12 +1121,12 @@ function Collect-LocalSystemData {
 
 
     # Cmtlet required if SystemInfo or HotFix datasets are collected
-    if ($CollectionType.Contains('SystemInfo') -or $CollectionType.Contains('HotFix') -or $CollectionType.Contains('All')) {
+    if ($CollectionTypes.Contains('SystemInfo') -or $CollectionTypes.Contains('HotFix') -or $CollectionTypes.Contains('All')) {
         $compInfo = Get-ComputerInfo
     }
 
     # Local system information
-    if ($CollectionType.Contains('SystemInfo') -or $CollectionType.Contains('All')) {
+    if ($CollectionTypes.Contains('SystemInfo') -or $CollectionTypes.Contains('All')) {
         Write-Host "Local: Getting system information."
         $compInfo |
             Select-Object @{Name='PSComputerName'; Expression={$_.CsName}},
@@ -1132,7 +1167,7 @@ function Collect-LocalSystemData {
 
 
     # Local system hot fix information
-    if ($CollectionType.Contains('HotFix') -or $CollectionType.Contains('All')) {
+    if ($CollectionTypes.Contains('HotFix') -or $CollectionTypes.Contains('All')) {
         Write-Host "Local: Getting system hot fix information."
         $CompInfo.OsHotFixes | 
             ForEach-Object {
@@ -1149,7 +1184,7 @@ function Collect-LocalSystemData {
 
 
     # Dell and HP UEFI information
-    if ($CollectionType.Contains('Uefi') -or $CollectionType.Contains('All')) {
+    if ($CollectionTypes.Contains('Uefi') -or $CollectionTypes.Contains('All')) {
         Write-Host "Local: Getting UEFI information."
         getDellHpUefiData | 
             ForEach-Object {
@@ -1221,7 +1256,7 @@ function Collect-LocalSystemData {
 
 
     # BitLocker information
-    if ($CollectionType.Contains('BitLocker') -or $CollectionType.Contains('All')) {
+    if ($CollectionTypes.Contains('BitLocker') -or $CollectionTypes.Contains('All')) {
         Write-Host "Local: Getting BitLocker information."
         if(Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue) {
             Get-BitLockerVolume -ErrorAction SilentlyContinue |
@@ -1248,7 +1283,7 @@ function Collect-LocalSystemData {
 
 
     # Antimalware software information
-    if ($CollectionType.Contains('AntiMalware') -or $CollectionType.Contains('All')) {
+    if ($CollectionTypes.Contains('AntiMalware') -or $CollectionTypes.Contains('All')) {
         Write-Host "Local: Getting antimalware software information."
         Get-MpComputerStatus -ErrorAction SilentlyContinue |
             Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
@@ -1296,7 +1331,7 @@ function Collect-LocalSystemData {
 
 
     # Physical disk information
-    if ($CollectionType.Contains('PhysicalDisk') -or $CollectionType.Contains('All')) {
+    if ($CollectionTypes.Contains('PhysicalDisk') -or $CollectionTypes.Contains('All')) {
         Write-Host "Local: Getting physical disk information."
         Get-PhysicalDisk |
             Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
@@ -1318,7 +1353,7 @@ function Collect-LocalSystemData {
 
 
     # Hard drive volume storage information
-    if ($CollectionType.Contains('HdVolumeStorage') -or $CollectionType.Contains('All')) {
+    if ($CollectionTypes.Contains('HdVolumeStorage') -or $CollectionTypes.Contains('All')) {
         Write-Host "Local: Getting hard drive storage information."
         Get-PSDrive -PSProvider FileSystem | 
             Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
@@ -1334,10 +1369,10 @@ function Collect-LocalSystemData {
 
     
     # Share permissions
-    if ($CollectionType.Contains('SharePerms') -or $CollectionType.Contains('All')) {
+    if ($CollectionTypes.Contains('SharePerms') -or $CollectionTypes.Contains('All')) {
         Write-Host "Local: Geting share permissions."
         getSmbSharePermissions |
-            Select-Object PSComputerName,
+            Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
                           @{Name='Name'; Expression={$_.Name}},
                           @{Name='AccountName'; Expression={$_.AccountName}},
                           @{Name='AccessControlType'; Expression={$_.AccessControlType}},
@@ -1354,7 +1389,7 @@ function Collect-LocalSystemData {
 
     
     # Downloads, Documents, and Desktop files
-    if ($CollectionType.Contains('LocalFiles') -or $CollectionType.Contains('All')) {
+    if ($CollectionTypes.Contains('LocalFiles') -or $CollectionTypes.Contains('All')) {
         Write-Host "Local: Getting Documents, Desktop, and Downloads file information."
         Get-ChildItem -Path 'C:\Users\*\Downloads\','C:\Users\*\Documents\','C:\Users\*\Desktop\' -Recurse |
             Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Directory,Name,Extension,CreationTime,LastAccessTime,LastWriteTime,Attributes |
@@ -1690,15 +1725,18 @@ function Collect-RemoteSystemData {
     $compsLow = 0
     $compsHigh = $compsInc - 1
     
+    # Set the collection datasets
+    $CollectionTypes = setCollectionTypes $CollectionTypes
+
+    # Check if alternate PS remoting smart card credentials should be used
+    if($AltSmartCardCred) {
+        if(-not $sessArgs.ContainsKey('Credential')) {
+            $script:sessArgs['Credential'] = Get-SmartCardCred
+        }
+    }
+
     while($compsMax -gt 0) {
 
-        # Check if alternate PS remoting smart card credentials should be used
-        if($AltSmartCardCred) {
-            if(-not $sessArgs.ContainsKey('Credential')) {
-                $script:sessArgs['Credential'] = Get-SmartCardCred
-            }
-        }
-        
         if($compsMax -lt $compsInc) {
             $compsHigh = $compsLow + $compsMax - 1
             $compsMax = 0
@@ -1741,45 +1779,32 @@ function Collect-RemoteSystemData {
             }
         }
 
+        # increment the range for the next batch of systems
+        $compsLow += $compsInc
+        $compsHigh += $compsInc        
 
         # Display the total number of PS sessions created
         $totalSessions = (Get-PSSession | Measure-Object).Count
         
         if($totalSessions -eq 0) {
             Write-Host "Remoting: $totalSessions PowerShell sessions created, exiting remote collection."
-            return
+            continue
         } elseif($totalSessions -eq 1) {
             Write-Host "Remoting: $totalSessions PowerShell session created."
         } else {
             Write-Host "Remoting: $totalSessions PowerShell sessions created."
         }
 
-        # If there are over 200 active PS remoting sessions, double the simultaneous active remote sessions from 32 to 64
+        # If there are over 200 active PS remoting sessions, double the simultaneous active connections from 32 to 64 for Invoke-Command calls
         $simultaneouPsRemoteSess = 32
         if($totalSessions -gt 200) {
             $simultaneouPsRemoteSess = 64
         }
 
-        # increment the range for the next batch of systems
-        $compsLow += $compsInc
-        $compsHigh += $compsInc
-
-        # Set the collection datasets
-        # If no options have been set use the default collection (all except modules and share NTFS permissions)
-        # There is an edge case with this code where if you do something like 'DefaultPlusModules','ShareNtfs' it won't collect ShareNtfs or 'DefaultPlusShareNtfs','Modules' it won't collection Modules but keeping it basic
-        if (-not $CollectionType -or $CollectionType.Contains('All') -or $CollectionType.Contains('DefaultPlusModules') -or $CollectionType.Contains('DefaultPlusShareNtfs')) {
-            $CollectionType = @('LocalGroup','LocalUser','Processes','ScheduledTasks','Services','NetConnects','64bitProg','32bitProg','SystemInfo','HotFix','Uefi','BitLocker','AntiMalware','PhysicalDisk','HdVolumeStorage','SharePerms','LocalFiles')
-        } elseif ($CollectionType.Contains('All')) {
-            $CollectionType += 'Modules','ShareNtfs'
-        } elseif ($CollectionType.Contains('DefaultPlusModules')) {
-            $CollectionType += 'Modules'
-        } elseif ($CollectionType.Contains('DefaultPlusShareNtfs')) {
-            $CollectionType += 'ShareNtfs'
-        }
 
         ### Remoting data pull ###
         # Local group memberships
-        if ($CollectionType.Contains('LocalGroups') -or $CollectionType.Contains('All')) {
+        if ($CollectionTypes.Contains('LocalGroups') -or $CollectionTypes.Contains('All')) {
             Write-Host "Remoting: Getting local group memberships."
             Get-BrokenPSSessions 'LocalGroupMembers'
 
@@ -1799,7 +1824,7 @@ function Collect-RemoteSystemData {
 
 
         # Local user accounts
-        if ($CollectionType.Contains('LocalUsers') -or $CollectionType.Contains('All')) {
+        if ($CollectionTypes.Contains('LocalUsers') -or $CollectionTypes.Contains('All')) {
             Write-Host "Remoting: Getting local user accounts."
             Get-BrokenPSSessions 'LocalUsers'
 
@@ -1823,7 +1848,7 @@ function Collect-RemoteSystemData {
 
 
         # Processes
-        if ($CollectionType.Contains('Processes') -or $CollectionType.Contains('All')) {
+        if ($CollectionTypes.Contains('Processes') -or $CollectionTypes.Contains('All')) {
             Write-Host "Remoting: Getting processes."
             Get-BrokenPSSessions 'Process'
 
@@ -1847,7 +1872,7 @@ function Collect-RemoteSystemData {
 
 
         # Modules (not included by default)
-        if ($CollectionType.Contains('Modules') -or $CollectionType.Contains('All')) {
+        if ($CollectionTypes.Contains('Modules') -or $CollectionTypes.Contains('All')) {
             Write-Host "Remoting: Getting process modules."
             Get-BrokenPSSessions 'Modules'
 
@@ -1886,7 +1911,7 @@ function Collect-RemoteSystemData {
         }
 
         # Scheduled tasks
-        if ($CollectionType.Contains('ScheduledTasks') -or $CollectionType.Contains('All')) {
+        if ($CollectionTypes.Contains('ScheduledTasks') -or $CollectionTypes.Contains('All')) {
             Write-Host "Remoting: Getting scheduled tasks."
             Get-BrokenPSSessions 'ScheduledTask'
 
@@ -1910,7 +1935,7 @@ function Collect-RemoteSystemData {
 			
 
         # Services
-        if ($CollectionType.Contains('Services') -or $CollectionType.Contains('All')) {
+        if ($CollectionTypes.Contains('Services') -or $CollectionTypes.Contains('All')) {
             Write-Host "Remoting: Getting services."
             Get-BrokenPSSessions 'Services'
 
@@ -1934,7 +1959,7 @@ function Collect-RemoteSystemData {
 
 
         # Network connections
-        if ($CollectionType.Contains('NetConnects') -or $CollectionType.Contains('All')) {
+        if ($CollectionTypes.Contains('NetConnects') -or $CollectionTypes.Contains('All')) {
             Write-Host "Remoting: Getting network connections."
             Get-BrokenPSSessions 'Network'
 
@@ -1947,7 +1972,7 @@ function Collect-RemoteSystemData {
 
 
         # 64-bit programs
-        if ($CollectionType.Contains('64bitProgs') -or $CollectionType.Contains('All')) {
+        if ($CollectionTypes.Contains('64bitProgs') -or $CollectionTypes.Contains('All')) {
             Write-Host "Remoting: Getting 64-bit programs."
             Get-BrokenPSSessions 'Programs64'
 
@@ -1963,7 +1988,7 @@ function Collect-RemoteSystemData {
 
 
         # 32-bit programs
-        if ($CollectionType.Contains('32bitProgs') -or $CollectionType.Contains('All')) {
+        if ($CollectionTypes.Contains('32bitProgs') -or $CollectionTypes.Contains('All')) {
             Write-Host "Remoting: Getting 32-bit programs."
             Get-BrokenPSSessions 'Programs32'
 
@@ -1979,7 +2004,7 @@ function Collect-RemoteSystemData {
 
 
         # System information
-        if ($CollectionType.Contains('SystemInfo') -or $CollectionType.Contains('All')) {
+        if ($CollectionTypes.Contains('SystemInfo') -or $CollectionTypes.Contains('All')) {
             Write-Host "Remoting: Getting system information."
             Get-BrokenPSSessions 'SystemInformation'
 
@@ -2024,7 +2049,7 @@ function Collect-RemoteSystemData {
 
 
         # System hot fix information
-        if ($CollectionType.Contains('HotFix') -or $CollectionType.Contains('All')) {
+        if ($CollectionTypes.Contains('HotFix') -or $CollectionTypes.Contains('All')) {
             Write-Host "Remoting: Getting system hot fix information."
             Get-BrokenPSSessions 'SystemHotFix'
     
@@ -2049,7 +2074,7 @@ function Collect-RemoteSystemData {
 
 
         # Dell and HP UEFI information
-        if ($CollectionType.Contains('Uefi') -or $CollectionType.Contains('All')) {
+        if ($CollectionTypes.Contains('Uefi') -or $CollectionTypes.Contains('All')) {
             Write-Host "Remoting: Getting UEFI information."
             Get-BrokenPSSessions 'UEFI'
 
@@ -2125,7 +2150,7 @@ function Collect-RemoteSystemData {
 
 
         # BitLocker information
-        if ($CollectionType.Contains('BitLocker') -or $CollectionType.Contains('All')) {
+        if ($CollectionTypes.Contains('BitLocker') -or $CollectionTypes.Contains('All')) {
             Write-Host "Remoting: Getting BitLocker information."
             Get-BrokenPSSessions 'BitLocker'
 
@@ -2155,7 +2180,7 @@ function Collect-RemoteSystemData {
 
 
         # Antimalware software information
-        if ($CollectionType.Contains('AntiMalware') -or $CollectionType.Contains('All')) {
+        if ($CollectionTypes.Contains('AntiMalware') -or $CollectionTypes.Contains('All')) {
             Write-Host "Remoting: Getting antimalware software information."
             Get-BrokenPSSessions 'Antimalware'
         
@@ -2207,7 +2232,7 @@ function Collect-RemoteSystemData {
 
 
         # Physical disk information
-        if ($CollectionType.Contains('PhysicalDisk') -or $CollectionType.Contains('All')) {
+        if ($CollectionTypes.Contains('PhysicalDisk') -or $CollectionTypes.Contains('All')) {
             Write-Host "Remoting: Getting physical disk information."
             Get-BrokenPSSessions 'PhysicalDisk'
         
@@ -2233,7 +2258,7 @@ function Collect-RemoteSystemData {
 
 
         # Hard drive volume storage information
-        if ($CollectionType.Contains('HdVolumeStorage') -or $CollectionType.Contains('All')) {
+        if ($CollectionTypes.Contains('HdVolumeStorage') -or $CollectionTypes.Contains('All')) {
             Write-Host "Remoting: Getting hard drive storage information."
             Get-BrokenPSSessions 'HardDriveInformation'
 
@@ -2253,7 +2278,7 @@ function Collect-RemoteSystemData {
 
 
         # Share permissions
-        if ($CollectionType.Contains('SharePerms') -or $CollectionType.Contains('All')) {
+        if ($CollectionTypes.Contains('SharePerms') -or $CollectionTypes.Contains('All')) {
             Write-Host "Remoting: Getting share permissions."
             Get-BrokenPSSessions 'SharePermissions'
         
@@ -2277,7 +2302,7 @@ function Collect-RemoteSystemData {
     
 
         # Downloads, Documents, and Desktop files
-        if ($CollectionType.Contains('LocalFiles') -or $CollectionType.Contains('All')) {
+        if ($CollectionTypes.Contains('LocalFiles') -or $CollectionTypes.Contains('All')) {
             Write-Host "Remoting: Getting Documents, Desktop, and Downloads file information."
             Get-BrokenPSSessions 'Files'
 
