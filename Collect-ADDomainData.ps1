@@ -23,6 +23,8 @@
     Collect the datasets on the local system (does not use PowerShell remoting functionality).
 .PARAMETER IncludeModules
     Collect process module data and hash the related image files.  Added as an option as the collection can be very slow in large environments.
+.PARAMETER CollectionType
+    Option to change the collection sets.  The default is all collection types except for modules or NTFS share permissions.  Options include: All, LocalGroups, LocalUsers, Processes, ScheduledTasks, Services, NetConnects, 64bitProgs, 32bitProgs, SystemInfo, HotFix, Uefi, BitLocker, AntiMalware, PhysicalDisk, HdVolumeStorage, SharePerms, ShareNtfs, and LocalFiles.  Three special options include All, DefaultPlusModules, and DefaultPlusShareNtfs.
 .PARAMETER DHCPServer
     Specify the server name if collecting Windows DHCP server scope and lease information with other domain data.
 .PARAMETER IncludeServerFeatures
@@ -89,9 +91,9 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.71
+    Version 1.0.72
     Author: Sam Pursglove
-    Last modified: 29 June 2026
+    Last modified: 30 June 2026
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -145,7 +147,7 @@ param (
 
     [Parameter(ParameterSetName='List', Mandatory=$True, ValueFromPipeline=$False, HelpMessage="Enter the list of fully qualified domain name systems (e.g. 'svr1.domain.com','svr2.domain.com')")]
     [Parameter(ParameterSetName='ListServerFeature', Mandatory=$True, ValueFromPipeline=$False, HelpMessage="Enter the list of fully qualified domain name systems (e.g. 'svr1.domain.com','svr2.domain.com')")]
-    [string[]]$SystemList = '',
+    [string[]]$SystemList = @(),
 
     [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Try to collection systems that previous failed the WinRM connection attempt')]
     [Parameter(ParameterSetName='Migrated', Mandatory=$False, HelpMessage='Try to collection systems that previous failed the WinRM connection attempt')]
@@ -162,11 +164,20 @@ param (
     [Parameter(ParameterSetName='LocalServerFeature', Mandatory=$True, ValueFromPipeline=$False, HelpMessage='Collects local server features only')]
     [Switch]$LocalCollectionOnly,
 
+    <#
     [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Collect process module data and hashes')]
     [Parameter(ParameterSetName='Migrated', Mandatory=$False, HelpMessage='Collect process module data and hashes')]
     [Parameter(ParameterSetName='Local', Mandatory=$False, HelpMessage='Collect process module data and hashes')]
     [Parameter(ParameterSetName='List', Mandatory=$False, HelpMessage='Collect process module data and hashes')]
     [Switch]$IncludeModules,
+    #>
+
+    [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Specify dataset collection (default: All except Modules and NTFS)')]
+    [Parameter(ParameterSetName='Migrated', Mandatory=$False, HelpMessage='Specify dataset collection (default: All except Modules and NTFS)')]
+    [Parameter(ParameterSetName='Local', Mandatory=$False, HelpMessage='Specify dataset collection (default: All except Modules and NTFS)')]
+    [Parameter(ParameterSetName='List', Mandatory=$False, HelpMessage='Specify dataset collection (default: All except Modules and NTFS)')]
+    [ValidateSet('All','LocalGroups','LocalUsers','Processes','Modules','ScheduledTasks','Services','NetConnects','64bitProgs','32bitProgs','SystemInfo','HotFix','Uefi','BitLocker','AntiMalware','PhysicalDisk','HdVolumeStorage','SharePerms','ShareNtfs','LocalFiles','DefaultPlusModules','DefaultPlusShareNtfs')]
+    [string[]]$CollectionType = @(),
 
     [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Use alternate, non-default smart card credentials')]
     [Parameter(ParameterSetName='Migrated', Mandatory=$False, HelpMessage='Use alternate, non-default smart card credentials')]
@@ -916,61 +927,67 @@ function Get-OpenPSSessions {
 # Pull data from the local system and append to the existing CSV files
 function Collect-LocalSystemData {
     # Local Administrators group membership
-    Write-Host "Local: Getting local group memberships."
-    getLocalGroupMembers |
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
-                      @{Name='GroupName'; Expression={$_.GroupName}},
-                      @{Name='Name'; Expression={$_.Name}},
-                      @{Name='Domain'; Expression={$_.Domain}},
-                      @{Name='SID'; Expression={$_.SID}},
-                      @{Name='RID'; Expression={$_.RID}},
-                      @{Name='PrincipalSource'; Expression={$_.PrincipalSource}},
-                      @{Name='ObjectClass'; Expression={$_.ObjectClass}} |
-	    Export-Csv -Path local_groups.csv -Append -NoTypeInformation
+    if ($CollectionType.Contains('LocalGroups') -or $CollectionType.Contains('All')) {
+        Write-Host "Local: Getting local group memberships."
+        getLocalGroupMembers |
+            Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
+                          @{Name='GroupName'; Expression={$_.GroupName}},
+                          @{Name='Name'; Expression={$_.Name}},
+                          @{Name='Domain'; Expression={$_.Domain}},
+                          @{Name='SID'; Expression={$_.SID}},
+                          @{Name='RID'; Expression={$_.RID}},
+                          @{Name='PrincipalSource'; Expression={$_.PrincipalSource}},
+                          @{Name='ObjectClass'; Expression={$_.ObjectClass}} |
+	        Export-Csv -Path local_groups.csv -Append -NoTypeInformation
+    }
 
 
     # Local user accounts
-    Write-Host "Local: Getting local user accounts."
-    getLocalUsers | 
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
-					  Name,
-   					  SID,
-		  			  RID,
-		 			  Enabled,
-					  PasswordRequired,
-	                  PasswordChangeable,
-				      PrincipalSource,
-		              Description,
-				      PasswordLastSet,
-		              @{Name='PasswordLastSetDays'; Expression={if($_.PasswordLastSetDays -ne '') {[math]::Round($_.PasswordLastSetDays, 0)}}},
-					  LastLogon |
-	    Export-Csv -Path local_users.csv -Append -NoTypeInformation
+    if ($CollectionType.Contains('LocalUsers') -or $CollectionType.Contains('All')) {
+        Write-Host "Local: Getting local user accounts."
+        getLocalUsers | 
+            Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
+					      Name,
+   					      SID,
+		  			      RID,
+		 			      Enabled,
+					      PasswordRequired,
+	                      PasswordChangeable,
+				          PrincipalSource,
+		                  Description,
+				          PasswordLastSet,
+		                  @{Name='PasswordLastSetDays'; Expression={if($_.PasswordLastSetDays -ne '') {[math]::Round($_.PasswordLastSetDays, 0)}}},
+					      LastLogon |
+	        Export-Csv -Path local_users.csv -Append -NoTypeInformation
+    }
 
     
     # Processes
-    # Check if the local session is running with elevated privileges
-    Write-Host "Local: Getting processes."
-    $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
-    $p = New-Object System.Security.Principal.WindowsPrincipal($id)
-    if ($p.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        $localProcesses = Get-Process -IncludeUserName -ErrorAction SilentlyContinue
-    } else {
-        $localProcesses = Get-Process -ErrorAction SilentlyContinue
-    }
+    if ($CollectionType.Contains('Processes') -or $CollectionType.Contains('All')) {
+        # Check if the local session is running with elevated privileges
+        Write-Host "Local: Getting processes."
+        $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        $p = New-Object System.Security.Principal.WindowsPrincipal($id)
+        if ($p.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            $localProcesses = Get-Process -IncludeUserName -ErrorAction SilentlyContinue
+        } else {
+            $localProcesses = Get-Process -ErrorAction SilentlyContinue
+        }
 
-    $localProcesses |
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
-                      Name,Id,Path,@{Name='Hash'; Expression={if($_.Path) {(Get-FileHash $_.Path).Hash}}},
-                      UserName,
-                      Company,
-                      Description,
-                      ProductVersion,
-                      StartTime |
-	    Export-Csv -Path processes.csv -Append -NoTypeInformation
+        $localProcesses |
+            Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
+                          Name,Id,Path,@{Name='Hash'; Expression={if($_.Path) {(Get-FileHash $_.Path).Hash}}},
+                          UserName,
+                          Company,
+                          Description,
+                          ProductVersion,
+                          StartTime |
+	        Export-Csv -Path processes.csv -Append -NoTypeInformation
+    }
 
 
     # Modules (not collected by default)
-    if ($IncludeModules) {
+    if ($CollectionType.Contains('Modules') -or $CollectionType.Contains('All')) {
         Write-Host "Local: Getting process modules."
         $modTracker = @{}
 
@@ -1002,315 +1019,347 @@ function Collect-LocalSystemData {
     }
 
     # Scheduled tasks
-    Write-Host "Local: Getting scheduled tasks."
-	getScheduledTasks |
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
-                      @{Name='TaskName'; Expression={$_.TaskName}},
-                      @{Name='TaskPath'; Expression={$_.TaskPath}},
-                      @{Name='State'; Expression={$_.State}},
-                      @{Name='Author'; Expression={$_.Author}},
-                      @{Name='Execute'; Expression={$_.Execute}},
-                      @{Name='Hash'; Expression={$_.Hash}},
-                      @{Name='Arguments_Data'; Expression={$_.Arguments_Data}},
-                      @{Name='ComClassID'; Expression={$_.ComClassID}},
-                      @{Name='LastRunTime'; Expression={$_.LastRunTime}},
-                      @{Name='NextRunTime'; Expression={$_.NextRunTime}},
-                      @{Name='Description'; Expression={$_.Description}} |
-	    Export-Csv -Path scheduled_tasks.csv -Append -NoTypeInformation
+    if ($CollectionType.Contains('ScheduledTasks') -or $CollectionType.Contains('All')) {
+        Write-Host "Local: Getting scheduled tasks."
+	    getScheduledTasks |
+            Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
+                          @{Name='TaskName'; Expression={$_.TaskName}},
+                          @{Name='TaskPath'; Expression={$_.TaskPath}},
+                          @{Name='State'; Expression={$_.State}},
+                          @{Name='Author'; Expression={$_.Author}},
+                          @{Name='Execute'; Expression={$_.Execute}},
+                          @{Name='Hash'; Expression={$_.Hash}},
+                          @{Name='Arguments_Data'; Expression={$_.Arguments_Data}},
+                          @{Name='ComClassID'; Expression={$_.ComClassID}},
+                          @{Name='LastRunTime'; Expression={$_.LastRunTime}},
+                          @{Name='NextRunTime'; Expression={$_.NextRunTime}},
+                          @{Name='Description'; Expression={$_.Description}} |
+	        Export-Csv -Path scheduled_tasks.csv -Append -NoTypeInformation
+    }
 
 
     # Services
-    Write-Host "Local: Getting services."
-    getServices |
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
-                      @{name='Name'; expression={$_.Name}},
-                      @{name='DisplayName'; expression={$_.DisplayName}},
-                      @{name='Status'; expression={$_.Status}},
-                      @{name='StartType'; expression={$_.StartType}},
-                      @{name='ImagePath'; expression={$_.ImagePath}},
-                      @{name='ImageHash'; expression={$_.ImageHash}},
-                      @{name='Svchost'; expression={$_.Svchost}},
-                      @{name='CanPauseAndContinue'; expression={$_.CanPauseAndContinue}},
-                      @{name='CanShutdown'; expression={$_.CanShutdown}},
-                      @{name='CanStop'; expression={$_.CanStop}},
-                      @{name='ServiceType'; expression={$_.ServiceType}} |
-        Export-Csv -Path services.csv -Append -NoTypeInformation
+    if ($CollectionType.Contains('Services') -or $CollectionType.Contains('All')) {
+        Write-Host "Local: Getting services."
+        getServices |
+            Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
+                          @{name='Name'; expression={$_.Name}},
+                          @{name='DisplayName'; expression={$_.DisplayName}},
+                          @{name='Status'; expression={$_.Status}},
+                          @{name='StartType'; expression={$_.StartType}},
+                          @{name='ImagePath'; expression={$_.ImagePath}},
+                          @{name='ImageHash'; expression={$_.ImageHash}},
+                          @{name='Svchost'; expression={$_.Svchost}},
+                          @{name='CanPauseAndContinue'; expression={$_.CanPauseAndContinue}},
+                          @{name='CanShutdown'; expression={$_.CanShutdown}},
+                          @{name='CanStop'; expression={$_.CanStop}},
+                          @{name='ServiceType'; expression={$_.ServiceType}} |
+            Export-Csv -Path services.csv -Append -NoTypeInformation
+    }
 
 
     # Network connections
-    Write-Host "Local: Getting network connections."
-    netConnects | 
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Date,Time,LocalAddress,LocalPort,RemoteAddress,RemotePort,State,OwningProcess,ProcessName |
-        Export-Csv -Path net.csv -Append -NoTypeInformation 
+    if ($CollectionType.Contains('NetConnects') -or $CollectionType.Contains('All')) {
+        Write-Host "Local: Getting network connections."
+        netConnects | 
+            Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Date,Time,LocalAddress,LocalPort,RemoteAddress,RemotePort,State,OwningProcess,ProcessName |
+            Export-Csv -Path net.csv -Append -NoTypeInformation
+    }
 
     
-    # 64 bit programs
-    Write-Host "Local: Getting 64-bit programs."
-    Get-ChildItem -Path 'C:\Program Files' |
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'64-bit'}} |
-	    Export-Csv -Path programs.csv -Append -NoTypeInformation
+    # 64-bit programs
+    if ($CollectionType.Contains('64bitProgs') -or $CollectionType.Contains('All')) {
+        Write-Host "Local: Getting 64-bit programs."
+        Get-ChildItem -Path 'C:\Program Files' |
+            Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'64-bit'}} |
+	        Export-Csv -Path programs.csv -Append -NoTypeInformation
+    }
 
     
-    # 32 bit programs
-    Write-Host "Local: Getting 32-bit programs."
-    Get-ChildItem -Path 'C:\Program Files (x86)' |
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'32-bit'}} |
-	    Export-Csv -Path programs.csv -Append -NoTypeInformation
+    # 32-bit programs
+    if ($CollectionType.Contains('32bitProgs') -or $CollectionType.Contains('All')) {
+        Write-Host "Local: Getting 32-bit programs."
+        Get-ChildItem -Path 'C:\Program Files (x86)' |
+            Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'32-bit'}} |
+	        Export-Csv -Path programs.csv -Append -NoTypeInformation
+    }
 
+
+    # Cmtlet required if SystemInfo or HotFix datasets are collected
+    if ($CollectionType.Contains('SystemInfo') -or $CollectionType.Contains('HotFix') -or $CollectionType.Contains('All')) {
+        $compInfo = Get-ComputerInfo
+    }
 
     # Local system information
-    Write-Host "Local: Getting system information."
-    Get-ComputerInfo -OutVariable hotFixes |
-        Select-Object @{Name='PSComputerName'; Expression={$_.CsName}},
-                      WindowsCurrentVersion,
-                      WindowsEditionId,
-                      WindowsVersion,
-                      BiosManufacturer,
-                      BiosSMBIOSBIOSVersion,
-                      BiosFirmwareType,
-                      BiosReleaseDate,
-                      BiosSeralNumber,
-                      BiosCurrentLanguage,
-                      CsDomain,
-                      CsDomainRole,
-                      CsManufacturer,
-                      CsModel,
-                      @{name='CsProcessors'; expression={$_.CsProcessors.Name}},
-                      CsNumberOfProcessors,
-                      @{name='CsNumberOfCores'; expression={$_.CsProcessors.NumberOfCores}},
-                      CsNumberofLogicalProcessors,
-                      CsPartOfDomain,
-                      @{name='CsTotalPhysicalMemory (GB)'; expression={[math]::Round($_.CsTotalPhysicalMemory/1GB, 1)}},
-                      @{name='CsMaxClockSpeed'; expression={$_.CsProcessors.MaxClockSpeed}},
-                      OsName,
-                      OsType,
-                      OsVersion,
-                      OsBuildNumber,
-                      OsLocale,
-                      OsManufacturer,
-                      OsArchitecture,
-                      OsLanguage,
-                      KeyboardLayout,
-                      TimeZone,
-                      LogonServer,
-                      PowerPlatformRole |
-        Export-Csv -Path system_info.csv -Append -NoTypeInformation
+    if ($CollectionType.Contains('SystemInfo') -or $CollectionType.Contains('All')) {
+        Write-Host "Local: Getting system information."
+        $compInfo |
+            Select-Object @{Name='PSComputerName'; Expression={$_.CsName}},
+                          WindowsCurrentVersion,
+                          WindowsEditionId,
+                          WindowsVersion,
+                          BiosManufacturer,
+                          BiosSMBIOSBIOSVersion,
+                          BiosFirmwareType,
+                          BiosReleaseDate,
+                          BiosSeralNumber,
+                          BiosCurrentLanguage,
+                          CsDomain,
+                          CsDomainRole,
+                          CsManufacturer,
+                          CsModel,
+                          @{name='CsProcessors'; expression={$_.CsProcessors.Name}},
+                          CsNumberOfProcessors,
+                          @{name='CsNumberOfCores'; expression={$_.CsProcessors.NumberOfCores}},
+                          CsNumberofLogicalProcessors,
+                          CsPartOfDomain,
+                          @{name='CsTotalPhysicalMemory (GB)'; expression={[math]::Round($_.CsTotalPhysicalMemory/1GB, 1)}},
+                          @{name='CsMaxClockSpeed'; expression={$_.CsProcessors.MaxClockSpeed}},
+                          OsName,
+                          OsType,
+                          OsVersion,
+                          OsBuildNumber,
+                          OsLocale,
+                          OsManufacturer,
+                          OsArchitecture,
+                          OsLanguage,
+                          KeyboardLayout,
+                          TimeZone,
+                          LogonServer,
+                          PowerPlatformRole |
+            Export-Csv -Path system_info.csv -Append -NoTypeInformation
+    }
+
+
+    # Local system hot fix information
+    if ($CollectionType.Contains('HotFix') -or $CollectionType.Contains('All')) {
+        Write-Host "Local: Getting system hot fix information."
+        $CompInfo.OsHotFixes | 
+            ForEach-Object {
+                [pscustomobject]@{
+                    HotFixID       = $_.HotFixID
+                    Description    = $_.Description
+                    InstalledOn    = $_.InstalledOn
+                    PSComputerName = $hotFixes.CsName
+                }
+            } | 
+            Select-Object PSComputerName,HotFixID,Description,InstalledOn | 
+            Export-Csv -Path hotfixes.csv -Append -NoTypeInformation
+    }
 
 
     # Dell and HP UEFI information
-    Write-Host "Local: Getting UEFI information."
-    getDellHpUefiData | 
-        ForEach-Object {
-            if($_['Manufacturer'] -eq 'Dell') {
+    if ($CollectionType.Contains('Uefi') -or $CollectionType.Contains('All')) {
+        Write-Host "Local: Getting UEFI information."
+        getDellHpUefiData | 
+            ForEach-Object {
+                if($_['Manufacturer'] -eq 'Dell') {
             
-                [pscustomobject]$_ |
-                Select-Object PSComputerName,
-                                Manufacturer,
-                                AdminPw,
-                                AdminMinPwLen,
-                                AdminMaxPwLen,
-                                SystemPw,
-                                SystemMinPwLen,
-                                SystemMaxPwLen,
-                                StrongPassword,
-                                PwdUpperCaseRqd,
-                                PwdDigitRqd,
-                                PwdSpecialCharRqd,
-                                TpmSecurity,
-                                SecureBoot,
-                                Virtualization,
-                                PreBootDma,
-                                UefiBootOrder,
-                                LegacyBootOrder,
-                                Microphone,
-                                InternalSpeaker,
-                                WirelessLan,
-                                BluetoothDevice |                          
-                    Export-Csv uefi_dell.csv -Append -NoTypeInformation
+                    [pscustomobject]$_ |
+                    Select-Object PSComputerName,
+                                    Manufacturer,
+                                    AdminPw,
+                                    AdminMinPwLen,
+                                    AdminMaxPwLen,
+                                    SystemPw,
+                                    SystemMinPwLen,
+                                    SystemMaxPwLen,
+                                    StrongPassword,
+                                    PwdUpperCaseRqd,
+                                    PwdDigitRqd,
+                                    PwdSpecialCharRqd,
+                                    TpmSecurity,
+                                    SecureBoot,
+                                    Virtualization,
+                                    PreBootDma,
+                                    UefiBootOrder,
+                                    LegacyBootOrder,
+                                    Microphone,
+                                    InternalSpeaker,
+                                    WirelessLan,
+                                    BluetoothDevice |                          
+                        Export-Csv uefi_dell.csv -Append -NoTypeInformation
         
-            } elseif($_['Manufacturer'] -eq 'HP') {
+                } elseif($_['Manufacturer'] -eq 'HP') {
             
-                [pscustomobject]$_ | 
-                Select-Object PSComputerName,
-                                Manufacturer,
-                                AdminPw,
-                                AdminMinPwLen,
-                                AdminMaxPwLen,
-                                SystemPw,
-                                SystemMinPwLen,
-                                SystemMaxPwLen,
-                                @{Name='PwMinLen'; Expression={$_.'Password Minimum Length'}},
-                                @{Name='PwdUpperCaseRqdAdminAndUser,'; Expression={$_.'At least one upper case character is required in Administrator and User passwords'}},
-                                @{Name='PwdLowerCaseRqdAdminAndUser'; Expression={$_.'At least one lower case character is required in Administrator and User passwords'}},
-                                @{Name='PwdSpecialRqdAdminAndUser'; Expression={$_.'At least one number is required in Administrator and User passwords'}},
-                                @{Name='PwdDigitRqdAdminAndUser'; Expression={$_.'At least one symbol is required in Administrator and User passwords'}},
-                                @{Name='TpmVersion'; Expression={$_.'TPM Specification Version'}},
-                                @{Name='TpmSecurity'; Expression={$_.'TPM State'}},
-                                @{Name='SecureBoot'; Expression={$_.'Secure Boot'}},
-                                @{Name='Virtualization-VTx'; Expression={$_.'Virtualization Technology (VTx)'}},
-                                @{Name='Virtualization-VTd'; Expression={$_.'Virtualization Technology for Directed I/O (VTd)'}},
-                                @{Name='DmaProtection'; Expression={$_.'DMA Protection'}},
-                                @{Name='PreBootDma'; Expression={$_.'Pre-boot DMA Protection'}},
-                                @{Name='RestrictUsbDevices'; Expression={$_.'Restrict USB Devices'}},
-                                @{Name='ConfigLegacySupportAndSecureBoot'; Expression={$_.'Configure Legacy Support and Secure Boot'}},
-                                @{Name='UefiBootOrder'; Expression={$_.'UEFI Boot Order'}},
-                                @{Name='LegacyBootOrder'; Expression={$_.'Legacy Boot Order'}},
-                                @{Name='CdromBoot'; Expression={$_.'CD-ROM Boot'}},
-                                @{Name='UsbBoot'; Expression={$_.'USB Storage Boot'}},
-                                @{Name='PxeBoot'; Expression={$_.'Network (PXE) Boot'}},
-                                @{Name='IPv6DuringUefiBoot'; Expression={$_.'IPv6 during UEFI Boot'}},
-                                @{Name='InternalSpeaker'; Expression={$_.'Internal Speakers'}},
-                                Microphone,
-                                @{Name='M2WirelessBluetooth'; Expression={$_.'M.2 WLAN/BT'}} |
-                Export-Csv uefi_hp.csv -Append -NoTypeInformation
+                    [pscustomobject]$_ | 
+                    Select-Object PSComputerName,
+                                    Manufacturer,
+                                    AdminPw,
+                                    AdminMinPwLen,
+                                    AdminMaxPwLen,
+                                    SystemPw,
+                                    SystemMinPwLen,
+                                    SystemMaxPwLen,
+                                    @{Name='PwMinLen'; Expression={$_.'Password Minimum Length'}},
+                                    @{Name='PwdUpperCaseRqdAdminAndUser,'; Expression={$_.'At least one upper case character is required in Administrator and User passwords'}},
+                                    @{Name='PwdLowerCaseRqdAdminAndUser'; Expression={$_.'At least one lower case character is required in Administrator and User passwords'}},
+                                    @{Name='PwdSpecialRqdAdminAndUser'; Expression={$_.'At least one number is required in Administrator and User passwords'}},
+                                    @{Name='PwdDigitRqdAdminAndUser'; Expression={$_.'At least one symbol is required in Administrator and User passwords'}},
+                                    @{Name='TpmVersion'; Expression={$_.'TPM Specification Version'}},
+                                    @{Name='TpmSecurity'; Expression={$_.'TPM State'}},
+                                    @{Name='SecureBoot'; Expression={$_.'Secure Boot'}},
+                                    @{Name='Virtualization-VTx'; Expression={$_.'Virtualization Technology (VTx)'}},
+                                    @{Name='Virtualization-VTd'; Expression={$_.'Virtualization Technology for Directed I/O (VTd)'}},
+                                    @{Name='DmaProtection'; Expression={$_.'DMA Protection'}},
+                                    @{Name='PreBootDma'; Expression={$_.'Pre-boot DMA Protection'}},
+                                    @{Name='RestrictUsbDevices'; Expression={$_.'Restrict USB Devices'}},
+                                    @{Name='ConfigLegacySupportAndSecureBoot'; Expression={$_.'Configure Legacy Support and Secure Boot'}},
+                                    @{Name='UefiBootOrder'; Expression={$_.'UEFI Boot Order'}},
+                                    @{Name='LegacyBootOrder'; Expression={$_.'Legacy Boot Order'}},
+                                    @{Name='CdromBoot'; Expression={$_.'CD-ROM Boot'}},
+                                    @{Name='UsbBoot'; Expression={$_.'USB Storage Boot'}},
+                                    @{Name='PxeBoot'; Expression={$_.'Network (PXE) Boot'}},
+                                    @{Name='IPv6DuringUefiBoot'; Expression={$_.'IPv6 during UEFI Boot'}},
+                                    @{Name='InternalSpeaker'; Expression={$_.'Internal Speakers'}},
+                                    Microphone,
+                                    @{Name='M2WirelessBluetooth'; Expression={$_.'M.2 WLAN/BT'}} |
+                    Export-Csv uefi_hp.csv -Append -NoTypeInformation
+                }
             }
-        }
-    
-
-    # Local system hot fix information
-    Write-Host "Local: Getting system hot fix information."
-    $hotFixes.OsHotFixes | 
-        ForEach-Object {
-            [pscustomobject]@{
-                HotFixID       = $_.HotFixID
-                Description    = $_.Description
-                InstalledOn    = $_.InstalledOn
-                PSComputerName = $hotFixes.CsName
-            }
-        } | 
-        Select-Object PSComputerName,HotFixID,Description,InstalledOn | 
-        Export-Csv -Path hotfixes.csv -Append -NoTypeInformation
+    }
 
 
     # BitLocker information
-    Write-Host "Local: Getting BitLocker information."
-    if(Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue) {
-        Get-BitLockerVolume -ErrorAction SilentlyContinue |
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
-                      MountPoint,
-                      EncryptionMethod,
-                      AutoUnlockEnabled,
-                      AutoUnlockKeyStored,
-                      MetadataVersion,
-                      VolumeStatus,
-                      ProtectionStatus,
-                      LockStatus,
-                      EncryptionPercentage,
-                      WipePercentage,
-                      VolumeType,
-                      @{name='CapacityGB'; expression={[math]::Round($_.CapacityGB, 1)}},
-                      @{Name='KeyProtector'; Expression={$_.KeyProtector -join '|'}} |
-        Export-Csv -Path bitlocker.csv -Append -NoTypeInformation
+    if ($CollectionType.Contains('BitLocker') -or $CollectionType.Contains('All')) {
+        Write-Host "Local: Getting BitLocker information."
+        if(Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue) {
+            Get-BitLockerVolume -ErrorAction SilentlyContinue |
+            Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
+                          MountPoint,
+                          EncryptionMethod,
+                          AutoUnlockEnabled,
+                          AutoUnlockKeyStored,
+                          MetadataVersion,
+                          VolumeStatus,
+                          ProtectionStatus,
+                          LockStatus,
+                          EncryptionPercentage,
+                          WipePercentage,
+                          VolumeType,
+                          @{name='CapacityGB'; expression={[math]::Round($_.CapacityGB, 1)}},
+                          @{Name='KeyProtector'; Expression={$_.KeyProtector -join '|'}} |
+            Export-Csv -Path bitlocker.csv -Append -NoTypeInformation
     
-    } else {
-        Write-Host "Local: BitLocker module unavailable."
+        } else {
+            Write-Host "Local: BitLocker module unavailable."
+        }
     }
 
 
     # Antimalware software information
-    Write-Host "Local: Getting antimalware software information."
-    Get-MpComputerStatus -ErrorAction SilentlyContinue |
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
-                      AMEngineVersion,
-                      AMProductVersion,
-                      AMRunningMode,
-                      AMServiceEnabled,
-                      AMServiceVersion,
-                      AntispywareEnabled,
-                      AntispywareSignatureLastUpdated,
-                      AntispywareSignatureVersion,
-                      AntivirusEnabled,
-                      AntivirusSignatureLastUpdated,
-                      AntivirusSignatureVersion,
-                      BehaviorMonitorEnabled,
-                      DefenderSignaturesOutOfDate,
-                      DeviceControlDefaultEnforcement,
-                      DeviceControlPoliciesLastUpdated,
-                      DeviceControlState,
-                      FullScanOverdue,
-                      FullScanRequired,
-                      InitializationProgress,
-                      IoavProtectionEnabled,
-                      IsTamperProtected,
-                      IsVirtualMachine,
-                      NISEnabled,
-                      NISEngineVersion,
-                      NISSignatureLastUpdated,
-                      NISSignatureVersion,
-                      OnAccessProtectionEnabled,
-                      QuickScanEndTime,
-                      QuickScanStartTime,
-                      QuickScanOverdue,
-                      QuickScanSignatureVersion,
-                      RealTimeProtectionEnabled,
-                      RebootRequired,
-                      SmartAppControlState,
-                      TamperProtectionSource,
-                      TDTCapable,
-                      TDTMode,
-                      TDTStatus,
-                      TDTTelemetry |
-        Export-Csv -Path antimalware.csv -Append -NoTypeInformation
+    if ($CollectionType.Contains('AntiMalware') -or $CollectionType.Contains('All')) {
+        Write-Host "Local: Getting antimalware software information."
+        Get-MpComputerStatus -ErrorAction SilentlyContinue |
+            Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
+                          AMEngineVersion,
+                          AMProductVersion,
+                          AMRunningMode,
+                          AMServiceEnabled,
+                          AMServiceVersion,
+                          AntispywareEnabled,
+                          AntispywareSignatureLastUpdated,
+                          AntispywareSignatureVersion,
+                          AntivirusEnabled,
+                          AntivirusSignatureLastUpdated,
+                          AntivirusSignatureVersion,
+                          BehaviorMonitorEnabled,
+                          DefenderSignaturesOutOfDate,
+                          DeviceControlDefaultEnforcement,
+                          DeviceControlPoliciesLastUpdated,
+                          DeviceControlState,
+                          FullScanOverdue,
+                          FullScanRequired,
+                          InitializationProgress,
+                          IoavProtectionEnabled,
+                          IsTamperProtected,
+                          IsVirtualMachine,
+                          NISEnabled,
+                          NISEngineVersion,
+                          NISSignatureLastUpdated,
+                          NISSignatureVersion,
+                          OnAccessProtectionEnabled,
+                          QuickScanEndTime,
+                          QuickScanStartTime,
+                          QuickScanOverdue,
+                          QuickScanSignatureVersion,
+                          RealTimeProtectionEnabled,
+                          RebootRequired,
+                          SmartAppControlState,
+                          TamperProtectionSource,
+                          TDTCapable,
+                          TDTMode,
+                          TDTStatus,
+                          TDTTelemetry |
+            Export-Csv -Path antimalware.csv -Append -NoTypeInformation
+    }
 
 
     # Physical disk information
-    Write-Host "Local: Getting physical disk information."
-    Get-PhysicalDisk |
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
-                      OperationalStatus,
-                      HealthStatus,
-                      BusType,
-                      MediaType,
-                      SpindleSpeed,
-                      Manufacturer,
-                      Model,
-                      FirmwareVersion,
-                      IsPartial,
-                      LogicalSectorSize,
-                      PhysicalSectorSize,
-                      @{name='AllocatedSizeGB'; expression={[math]::Round($_.AllocatedSize/1GB, 1)}},
-                      @{name='SizeGB'; expression={[math]::Round($_.Size/1GB, 1)}} |
-        Export-Csv -Path physical_disk.csv -Append -NoTypeInformation
+    if ($CollectionType.Contains('PhysicalDisk') -or $CollectionType.Contains('All')) {
+        Write-Host "Local: Getting physical disk information."
+        Get-PhysicalDisk |
+            Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
+                          OperationalStatus,
+                          HealthStatus,
+                          BusType,
+                          MediaType,
+                          SpindleSpeed,
+                          Manufacturer,
+                          Model,
+                          FirmwareVersion,
+                          IsPartial,
+                          LogicalSectorSize,
+                          PhysicalSectorSize,
+                          @{name='AllocatedSizeGB'; expression={[math]::Round($_.AllocatedSize/1GB, 1)}},
+                          @{name='SizeGB'; expression={[math]::Round($_.Size/1GB, 1)}} |
+            Export-Csv -Path physical_disk.csv -Append -NoTypeInformation
+    }
 
 
     # Hard drive volume storage information
-    Write-Host "Local: Getting hard drive storage information."
-    Get-PSDrive -PSProvider FileSystem | 
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
-                      Name,
-                      Root,
-                      Description,
-                      @{name='Used (GB)'; expression={[math]::Round($_.Used/1GB, 2)}},
-                      @{name='Free (GB)'; expression={[math]::Round($_.Free/1GB, 2)}},
-                      @{name='Used (%)'; expression={[math]::Round($_.Used/($_.Used + $_.Free) * 100.0, 0)}},
-                      DisplayRoot |
-        Export-Csv -Path hard_drive_storage.csv -Append -NoTypeInformation
+    if ($CollectionType.Contains('HdVolumeStorage') -or $CollectionType.Contains('All')) {
+        Write-Host "Local: Getting hard drive storage information."
+        Get-PSDrive -PSProvider FileSystem | 
+            Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
+                          Name,
+                          Root,
+                          Description,
+                          @{name='Used (GB)'; expression={[math]::Round($_.Used/1GB, 2)}},
+                          @{name='Free (GB)'; expression={[math]::Round($_.Free/1GB, 2)}},
+                          @{name='Used (%)'; expression={[math]::Round($_.Used/($_.Used + $_.Free) * 100.0, 0)}},
+                          DisplayRoot |
+            Export-Csv -Path hard_drive_storage.csv -Append -NoTypeInformation
+    }
 
     
     # Share permissions
-    Write-Host "Local: Geting share permissions."
-    getSmbSharePermissions |
-        Select-Object PSComputerName,
-                      @{Name='Name'; Expression={$_.Name}},
-                      @{Name='AccountName'; Expression={$_.AccountName}},
-                      @{Name='AccessControlType'; Expression={$_.AccessControlType}},
-                      @{Name='AccessRight'; Expression={$_.AccessRight}},
-                      @{Name='Path'; Expression={$_.Path}},
-                      @{Name='Description'; Expression={$_.Description}},
-                      @{Name='ShareType'; Expression={$_.ShareType}},
-                      @{Name='ShareState'; Expression={$_.ShareState}},
-                      @{Name='EncryptData'; Expression={$_.EncryptData}},
-                      @{Name='CurrentUsers'; Expression={$_.CurrentUsers}},
-                      @{Name='FolderEnumerationMode'; Expression={$_.FolderEnumerationMode}} | 
-        Export-Csv -Path share_permissions.csv -Append -NoTypeInformation
+    if ($CollectionType.Contains('SharePerms') -or $CollectionType.Contains('All')) {
+        Write-Host "Local: Geting share permissions."
+        getSmbSharePermissions |
+            Select-Object PSComputerName,
+                          @{Name='Name'; Expression={$_.Name}},
+                          @{Name='AccountName'; Expression={$_.AccountName}},
+                          @{Name='AccessControlType'; Expression={$_.AccessControlType}},
+                          @{Name='AccessRight'; Expression={$_.AccessRight}},
+                          @{Name='Path'; Expression={$_.Path}},
+                          @{Name='Description'; Expression={$_.Description}},
+                          @{Name='ShareType'; Expression={$_.ShareType}},
+                          @{Name='ShareState'; Expression={$_.ShareState}},
+                          @{Name='EncryptData'; Expression={$_.EncryptData}},
+                          @{Name='CurrentUsers'; Expression={$_.CurrentUsers}},
+                          @{Name='FolderEnumerationMode'; Expression={$_.FolderEnumerationMode}} | 
+            Export-Csv -Path share_permissions.csv -Append -NoTypeInformation
+    }
 
     
     # Downloads, Documents, and Desktop files
-    Write-Host "Local: Getting Documents, Desktop, and Downloads file information."
-    Get-ChildItem -Path 'C:\Users\*\Downloads\','C:\Users\*\Documents\','C:\Users\*\Desktop\' -Recurse |
-        Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Directory,Name,Extension,CreationTime,LastAccessTime,LastWriteTime,Attributes |
-	    Export-Csv -Path files.csv -Append -NoTypeInformation
-
+    if ($CollectionType.Contains('LocalFiles') -or $CollectionType.Contains('All')) {
+        Write-Host "Local: Getting Documents, Desktop, and Downloads file information."
+        Get-ChildItem -Path 'C:\Users\*\Downloads\','C:\Users\*\Documents\','C:\Users\*\Desktop\' -Recurse |
+            Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Directory,Name,Extension,CreationTime,LastAccessTime,LastWriteTime,Attributes |
+	        Export-Csv -Path files.csv -Append -NoTypeInformation
+    }
 }
 
 
@@ -1715,71 +1764,90 @@ function Collect-RemoteSystemData {
         $compsLow += $compsInc
         $compsHigh += $compsInc
 
+        # Set the collection datasets
+        # If no options have been set use the default collection (all except modules and share NTFS permissions)
+        # There is an edge case with this code where if you do something like 'DefaultPlusModules','ShareNtfs' it won't collect ShareNtfs or 'DefaultPlusShareNtfs','Modules' it won't collection Modules but keeping it basic
+        if (-not $CollectionType -or $CollectionType.Contains('All') -or $CollectionType.Contains('DefaultPlusModules') -or $CollectionType.Contains('DefaultPlusShareNtfs')) {
+            $CollectionType = @('LocalGroup','LocalUser','Processes','ScheduledTasks','Services','NetConnects','64bitProg','32bitProg','SystemInfo','HotFix','Uefi','BitLocker','AntiMalware','PhysicalDisk','HdVolumeStorage','SharePerms','LocalFiles')
+        } elseif ($CollectionType.Contains('All')) {
+            $CollectionType += 'Modules','ShareNtfs'
+        } elseif ($CollectionType.Contains('DefaultPlusModules')) {
+            $CollectionType += 'Modules'
+        } elseif ($CollectionType.Contains('DefaultPlusShareNtfs')) {
+            $CollectionType += 'ShareNtfs'
+        }
+
         ### Remoting data pull ###
         # Local group memberships
-        Write-Host "Remoting: Getting local group memberships."
-        Get-BrokenPSSessions 'LocalGroupMembers'
+        if ($CollectionType.Contains('LocalGroups') -or $CollectionType.Contains('All')) {
+            Write-Host "Remoting: Getting local group memberships."
+            Get-BrokenPSSessions 'LocalGroupMembers'
 
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ThrottleLimit $simultaneouPsRemoteSess `
-                       -ScriptBlock ${function:getLocalGroupMembers} |
-            Select-Object PSComputerName,
-                          @{Name='GroupName'; Expression={$_.GroupName}},
-                          @{Name='Name'; Expression={$_.Name}},
-                          @{Name='Domain'; Expression={$_.Domain}},
-                          @{Name='SID'; Expression={$_.SID}},
-                          @{Name='RID'; Expression={$_.RID}},
-                          @{Name='PrincipalSource'; Expression={$_.PrincipalSource}},
-                          @{Name='ObjectClass'; Expression={$_.ObjectClass}} |
-            Export-Csv -Path local_groups.csv -Append -NoTypeInformation
+            Invoke-Command -Session (Get-OpenPSSessions) `
+                           -ThrottleLimit $simultaneouPsRemoteSess `
+                           -ScriptBlock ${function:getLocalGroupMembers} |
+                Select-Object PSComputerName,
+                              @{Name='GroupName'; Expression={$_.GroupName}},
+                              @{Name='Name'; Expression={$_.Name}},
+                              @{Name='Domain'; Expression={$_.Domain}},
+                              @{Name='SID'; Expression={$_.SID}},
+                              @{Name='RID'; Expression={$_.RID}},
+                              @{Name='PrincipalSource'; Expression={$_.PrincipalSource}},
+                              @{Name='ObjectClass'; Expression={$_.ObjectClass}} |
+                Export-Csv -Path local_groups.csv -Append -NoTypeInformation
+        }
 
 
         # Local user accounts
-        Write-Host "Remoting: Getting local user accounts."
-        Get-BrokenPSSessions 'LocalUsers'
+        if ($CollectionType.Contains('LocalUsers') -or $CollectionType.Contains('All')) {
+            Write-Host "Remoting: Getting local user accounts."
+            Get-BrokenPSSessions 'LocalUsers'
 
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ThrottleLimit $simultaneouPsRemoteSess `
-                       -ScriptBlock ${function:getLocalUsers} |
-            Select-Object PSComputerName,
-					      Name,
-	   				      SID,
-		  			      RID,
-		 			      Enabled,
-					      PasswordRequired,
-	   				      PasswordChangeable,
-		  			      PrincipalSource,
-		 			      Description,
-					      PasswordLastSet,
-	   				      @{Name='PasswordLastSetDays'; Expression={if($_.PasswordLastSetDays -ne '') {[math]::Round($_.PasswordLastSetDays, 0)}}},
-		  			      LastLogon |
-	        Export-Csv -Path local_users.csv -Append -NoTypeInformation
+            Invoke-Command -Session (Get-OpenPSSessions) `
+                           -ThrottleLimit $simultaneouPsRemoteSess `
+                           -ScriptBlock ${function:getLocalUsers} |
+                Select-Object PSComputerName,
+					          Name,
+	   				          SID,
+		  			          RID,
+		 			          Enabled,
+					          PasswordRequired,
+	   				          PasswordChangeable,
+		  			          PrincipalSource,
+		 			          Description,
+					          PasswordLastSet,
+	   				          @{Name='PasswordLastSetDays'; Expression={if($_.PasswordLastSetDays -ne '') {[math]::Round($_.PasswordLastSetDays, 0)}}},
+		  			          LastLogon |
+	            Export-Csv -Path local_users.csv -Append -NoTypeInformation
+        }
 
 
         # Processes
-        Write-Host "Remoting: Getting processes."
-        Get-BrokenPSSessions 'Process'
+        if ($CollectionType.Contains('Processes') -or $CollectionType.Contains('All')) {
+            Write-Host "Remoting: Getting processes."
+            Get-BrokenPSSessions 'Process'
 
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ThrottleLimit $simultaneouPsRemoteSess `
-                       -ScriptBlock {
-                            Get-Process -IncludeUserName -ErrorAction SilentlyContinue | 
-                            Select-Object Name,
-                                          Id,
-                                          Path,
-                                          @{Name='Hash'; Expression={if($_.Path -notlike '') {(Get-FileHash $_.Path -ErrorAction SilentlyContinue).Hash}}},
-                                          UserName,
-                                          Company,
-                                          Description,
-                                          ProductVersion,
-                                          StartTime
-                       } |
-            Select-Object PSComputerName,Name,Id,Path,Hash,UserName,Company,Description,ProductVersion,StartTime |
-	        Export-Csv -Path processes.csv -Append -NoTypeInformation
+            Invoke-Command -Session (Get-OpenPSSessions) `
+                           -ThrottleLimit $simultaneouPsRemoteSess `
+                           -ScriptBlock {
+                                Get-Process -IncludeUserName -ErrorAction SilentlyContinue | 
+                                Select-Object Name,
+                                              Id,
+                                              Path,
+                                              @{Name='Hash'; Expression={if($_.Path -notlike '') {(Get-FileHash $_.Path -ErrorAction SilentlyContinue).Hash}}},
+                                              UserName,
+                                              Company,
+                                              Description,
+                                              ProductVersion,
+                                              StartTime
+                           } |
+                Select-Object PSComputerName,Name,Id,Path,Hash,UserName,Company,Description,ProductVersion,StartTime |
+	            Export-Csv -Path processes.csv -Append -NoTypeInformation
+        }
 
 
         # Modules (not included by default)
-        if ($IncludeModules) {
+        if ($CollectionType.Contains('Modules') -or $CollectionType.Contains('All')) {
             Write-Host "Remoting: Getting process modules."
             Get-BrokenPSSessions 'Modules'
 
@@ -1818,382 +1886,410 @@ function Collect-RemoteSystemData {
         }
 
         # Scheduled tasks
-        Write-Host "Remoting: Getting scheduled tasks."
-        Get-BrokenPSSessions 'ScheduledTask'
+        if ($CollectionType.Contains('ScheduledTasks') -or $CollectionType.Contains('All')) {
+            Write-Host "Remoting: Getting scheduled tasks."
+            Get-BrokenPSSessions 'ScheduledTask'
 
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ThrottleLimit $simultaneouPsRemoteSess `
-                       -ScriptBlock ${function:getScheduledTasks} |
-        	Select-Object PSComputerName,
-                      @{Name='TaskName'; Expression={$_.TaskName}},
-                      @{Name='TaskPath'; Expression={$_.TaskPath}},
-                      @{Name='State'; Expression={$_.State}},
-                      @{Name='Author'; Expression={$_.Author}},
-                      @{Name='Execute'; Expression={$_.Execute}},
-                      @{Name='Hash'; Expression={$_.Hash}},
-                      @{Name='Arguments_Data'; Expression={$_.Arguments_Data}},
-                      @{Name='ComClassID'; Expression={$_.ComClassID}},
-                      @{Name='LastRunTime'; Expression={$_.LastRunTime}},
-                      @{Name='NextRunTime'; Expression={$_.NextRunTime}},
-                      @{Name='Description'; Expression={$_.Description}} |
-	    	Export-Csv -Path scheduled_tasks.csv -Append -NoTypeInformation
+            Invoke-Command -Session (Get-OpenPSSessions) `
+                           -ThrottleLimit $simultaneouPsRemoteSess `
+                           -ScriptBlock ${function:getScheduledTasks} |
+        	    Select-Object PSComputerName,
+                          @{Name='TaskName'; Expression={$_.TaskName}},
+                          @{Name='TaskPath'; Expression={$_.TaskPath}},
+                          @{Name='State'; Expression={$_.State}},
+                          @{Name='Author'; Expression={$_.Author}},
+                          @{Name='Execute'; Expression={$_.Execute}},
+                          @{Name='Hash'; Expression={$_.Hash}},
+                          @{Name='Arguments_Data'; Expression={$_.Arguments_Data}},
+                          @{Name='ComClassID'; Expression={$_.ComClassID}},
+                          @{Name='LastRunTime'; Expression={$_.LastRunTime}},
+                          @{Name='NextRunTime'; Expression={$_.NextRunTime}},
+                          @{Name='Description'; Expression={$_.Description}} |
+	    	    Export-Csv -Path scheduled_tasks.csv -Append -NoTypeInformation
+        }
 			
 
         # Services
-        Write-Host "Remoting: Getting services."
-        Get-BrokenPSSessions 'Services'
+        if ($CollectionType.Contains('Services') -or $CollectionType.Contains('All')) {
+            Write-Host "Remoting: Getting services."
+            Get-BrokenPSSessions 'Services'
 
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ThrottleLimit $simultaneouPsRemoteSess `
-                       -ScriptBlock ${function:getServices} |
-            Select-Object PSComputerName,
-                      @{name='Name'; expression={$_.Name}},
-                      @{name='DisplayName'; expression={$_.DisplayName}},
-                      @{name='Status'; expression={$_.Status}},
-                      @{name='StartType'; expression={$_.StartType}},
-                      @{name='ImagePath'; expression={$_.ImagePath}},
-                      @{name='ImageHash'; expression={$_.ImageHash}},
-                      @{name='Svchost'; expression={$_.Svchost}},
-                      @{name='CanPauseAndContinue'; expression={$_.CanPauseAndContinue}},
-                      @{name='CanShutdown'; expression={$_.CanShutdown}},
-                      @{name='CanStop'; expression={$_.CanStop}},
-                      @{name='ServiceType'; expression={$_.ServiceType}} |
-            Export-Csv -Path services.csv -Append -NoTypeInformation
+            Invoke-Command -Session (Get-OpenPSSessions) `
+                           -ThrottleLimit $simultaneouPsRemoteSess `
+                           -ScriptBlock ${function:getServices} |
+                Select-Object PSComputerName,
+                          @{name='Name'; expression={$_.Name}},
+                          @{name='DisplayName'; expression={$_.DisplayName}},
+                          @{name='Status'; expression={$_.Status}},
+                          @{name='StartType'; expression={$_.StartType}},
+                          @{name='ImagePath'; expression={$_.ImagePath}},
+                          @{name='ImageHash'; expression={$_.ImageHash}},
+                          @{name='Svchost'; expression={$_.Svchost}},
+                          @{name='CanPauseAndContinue'; expression={$_.CanPauseAndContinue}},
+                          @{name='CanShutdown'; expression={$_.CanShutdown}},
+                          @{name='CanStop'; expression={$_.CanStop}},
+                          @{name='ServiceType'; expression={$_.ServiceType}} |
+                Export-Csv -Path services.csv -Append -NoTypeInformation
+        }
 
 
         # Network connections
-        Write-Host "Remoting: Getting network connections."
-        Get-BrokenPSSessions 'Network'
+        if ($CollectionType.Contains('NetConnects') -or $CollectionType.Contains('All')) {
+            Write-Host "Remoting: Getting network connections."
+            Get-BrokenPSSessions 'Network'
 
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ThrottleLimit $simultaneouPsRemoteSess `
-                       -ScriptBlock ${function:netConnects} |
-            Select-Object PSComputerName,Date,Time,LocalAddress,LocalPort,RemoteAddress,RemotePort,State,OwningProcess,ProcessName |
-            Export-Csv -Path net.csv -Append -NoTypeInformation
-
-
-        # 64 bit programs
-        Write-Host "Remoting: Getting 64-bit programs."
-        Get-BrokenPSSessions 'Programs64'
-
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ThrottleLimit $simultaneouPsRemoteSess `
-                       -ScriptBlock {
-                            Get-ChildItem -Path 'C:\Program Files' | 
-                            Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'64-bit'}}
-                       } |
-	        Select-Object PSComputerName,Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,ProgramType |
-            Export-Csv -Path programs.csv -Append -NoTypeInformation
+            Invoke-Command -Session (Get-OpenPSSessions) `
+                           -ThrottleLimit $simultaneouPsRemoteSess `
+                           -ScriptBlock ${function:netConnects} |
+                Select-Object PSComputerName,Date,Time,LocalAddress,LocalPort,RemoteAddress,RemotePort,State,OwningProcess,ProcessName |
+                Export-Csv -Path net.csv -Append -NoTypeInformation
+        }
 
 
-        # 32 bit programs
-        Write-Host "Remoting: Getting 32-bit programs."
-        Get-BrokenPSSessions 'Programs32'
+        # 64-bit programs
+        if ($CollectionType.Contains('64bitProgs') -or $CollectionType.Contains('All')) {
+            Write-Host "Remoting: Getting 64-bit programs."
+            Get-BrokenPSSessions 'Programs64'
 
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ThrottleLimit $simultaneouPsRemoteSess `
-                       -ScriptBlock {
-                            Get-ChildItem -Path 'C:\Program Files (x86)' | 
-                            Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'32-bit'}}
-                       } |
-	        Select-Object PSComputerName,Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,ProgramType |
-            Export-Csv -Path programs.csv -Append -NoTypeInformation
+            Invoke-Command -Session (Get-OpenPSSessions) `
+                           -ThrottleLimit $simultaneouPsRemoteSess `
+                           -ScriptBlock {
+                                Get-ChildItem -Path 'C:\Program Files' | 
+                                Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'64-bit'}}
+                           } |
+	            Select-Object PSComputerName,Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,ProgramType |
+                Export-Csv -Path programs.csv -Append -NoTypeInformation
+        }
+
+
+        # 32-bit programs
+        if ($CollectionType.Contains('32bitProgs') -or $CollectionType.Contains('All')) {
+            Write-Host "Remoting: Getting 32-bit programs."
+            Get-BrokenPSSessions 'Programs32'
+
+            Invoke-Command -Session (Get-OpenPSSessions) `
+                           -ThrottleLimit $simultaneouPsRemoteSess `
+                           -ScriptBlock {
+                                Get-ChildItem -Path 'C:\Program Files (x86)' | 
+                                Select-Object Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'32-bit'}}
+                           } |
+	            Select-Object PSComputerName,Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,ProgramType |
+                Export-Csv -Path programs.csv -Append -NoTypeInformation
+        }
 
 
         # System information
-        Write-Host "Remoting: Getting system information."
-        Get-BrokenPSSessions 'SystemInformation'
+        if ($CollectionType.Contains('SystemInfo') -or $CollectionType.Contains('All')) {
+            Write-Host "Remoting: Getting system information."
+            Get-BrokenPSSessions 'SystemInformation'
 
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ThrottleLimit $simultaneouPsRemoteSess `
-                       -ScriptBlock {Get-ComputerInfo -ErrorAction SilentlyContinue} |
-            Select-Object PSComputerName,
-                          WindowsCurrentVersion,
-                          WindowsEditionId,
-                          WindowsVersion,
-                          BiosManufacturer,
-                          BiosSMBIOSBIOSVersion,
-                          BiosFirmwareType,
-                          BiosReleaseDate,
-                          BiosSeralNumber,
-                          BiosCurrentLanguage,
-                          CsDomain,
-                          CsDomainRole,
-                          CsManufacturer,
-                          CsModel,
-                          @{name='CsProcessors'; expression={$_.CsProcessors.Name}},
-                          CsNumberOfProcessors,
-                          @{name='CsNumberOfCores'; expression={$_.CsProcessors.NumberOfCores}},
-                          CsNumberofLogicalProcessors,
-                          CsPartOfDomain,
-                          @{name='CsTotalPhysicalMemory (GB)'; expression={[math]::Round($_.CsTotalPhysicalMemory/1GB, 1)}},
-                          @{name='CsMaxClockSpeed'; expression={$_.CsProcessors.MaxClockSpeed}},
-                          OsName,
-                          OsType,
-                          OsVersion,
-                          OsBuildNumber,
-                          OsLocale,
-                          OsManufacturer,
-                          OsArchitecture,
-                          OsLanguage,
-                          KeyboardLayout,
-                          TimeZone,
-                          LogonServer,
-                          PowerPlatformRole |
-            Export-Csv -Path system_info.csv -Append -NoTypeInformation
+            Invoke-Command -Session (Get-OpenPSSessions) `
+                           -ThrottleLimit $simultaneouPsRemoteSess `
+                           -ScriptBlock {Get-ComputerInfo -ErrorAction SilentlyContinue} |
+                Select-Object PSComputerName,
+                              WindowsCurrentVersion,
+                              WindowsEditionId,
+                              WindowsVersion,
+                              BiosManufacturer,
+                              BiosSMBIOSBIOSVersion,
+                              BiosFirmwareType,
+                              BiosReleaseDate,
+                              BiosSeralNumber,
+                              BiosCurrentLanguage,
+                              CsDomain,
+                              CsDomainRole,
+                              CsManufacturer,
+                              CsModel,
+                              @{name='CsProcessors'; expression={$_.CsProcessors.Name}},
+                              CsNumberOfProcessors,
+                              @{name='CsNumberOfCores'; expression={$_.CsProcessors.NumberOfCores}},
+                              CsNumberofLogicalProcessors,
+                              CsPartOfDomain,
+                              @{name='CsTotalPhysicalMemory (GB)'; expression={[math]::Round($_.CsTotalPhysicalMemory/1GB, 1)}},
+                              @{name='CsMaxClockSpeed'; expression={$_.CsProcessors.MaxClockSpeed}},
+                              OsName,
+                              OsType,
+                              OsVersion,
+                              OsBuildNumber,
+                              OsLocale,
+                              OsManufacturer,
+                              OsArchitecture,
+                              OsLanguage,
+                              KeyboardLayout,
+                              TimeZone,
+                              LogonServer,
+                              PowerPlatformRole |
+                Export-Csv -Path system_info.csv -Append -NoTypeInformation
+        }
 
 
         # System hot fix information
-        Write-Host "Remoting: Getting system hot fix information."
-        Get-BrokenPSSessions 'SystemHotFix'
+        if ($CollectionType.Contains('HotFix') -or $CollectionType.Contains('All')) {
+            Write-Host "Remoting: Getting system hot fix information."
+            Get-BrokenPSSessions 'SystemHotFix'
     
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ThrottleLimit $simultaneouPsRemoteSess `
-                       -ScriptBlock {
-                            (Get-ComputerInfo).OsHotFixes | 
-                                ForEach-Object {
-                                  @{
-                                        HotFixID    = $_.HotFixID
-                                        Description = $_.Description
-                                        InstalledOn = $_.InstalledOn
-                                    }
-                                 }
-                       } | 
-            Select-Object PSComputerName,
-                          @{Name='HotFixID'; Expression={$_.HotFixID}},
-                          @{Name='Description'; Expression={$_.Description}},
-                          @{Name='InstalledOn'; Expression={$_.InstalledOn}} | 
-            Export-Csv -Path hotfixes.csv -Append -NoTypeInformation
+            Invoke-Command -Session (Get-OpenPSSessions) `
+                           -ThrottleLimit $simultaneouPsRemoteSess `
+                           -ScriptBlock {
+                                (Get-ComputerInfo).OsHotFixes | 
+                                    ForEach-Object {
+                                      @{
+                                            HotFixID    = $_.HotFixID
+                                            Description = $_.Description
+                                            InstalledOn = $_.InstalledOn
+                                        }
+                                     }
+                           } | 
+                Select-Object PSComputerName,
+                              @{Name='HotFixID'; Expression={$_.HotFixID}},
+                              @{Name='Description'; Expression={$_.Description}},
+                              @{Name='InstalledOn'; Expression={$_.InstalledOn}} | 
+                Export-Csv -Path hotfixes.csv -Append -NoTypeInformation
+        }
 
 
         # Dell and HP UEFI information
-        Write-Host "Remoting: Getting UEFI information."
-        Get-BrokenPSSessions 'UEFI'
+        if ($CollectionType.Contains('Uefi') -or $CollectionType.Contains('All')) {
+            Write-Host "Remoting: Getting UEFI information."
+            Get-BrokenPSSessions 'UEFI'
 
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ThrottleLimit $simultaneouPsRemoteSess `
-                       -ScriptBlock ${function:getDellHpUefiData} | 
-            ForEach-Object {
-                if($_['Manufacturer'] -eq 'Dell') {
+            Invoke-Command -Session (Get-OpenPSSessions) `
+                           -ThrottleLimit $simultaneouPsRemoteSess `
+                           -ScriptBlock ${function:getDellHpUefiData} | 
+                ForEach-Object {
+                    if($_['Manufacturer'] -eq 'Dell') {
             
-                    [pscustomobject]$_ |
-                    Select-Object PSComputerName,
-                                  Manufacturer,
-                                  AdminPw,
-                                  AdminMinPwLen,
-                                  AdminMaxPwLen,
-                                  SystemPw,
-                                  SystemMinPwLen,
-                                  SystemMaxPwLen,
-                                  StrongPassword,
-                                  PwdUpperCaseRqd,
-                                  PwdDigitRqd,
-                                  PwdSpecialCharRqd,
-                                  TpmSecurity,
-                                  SecureBoot,
-                                  Virtualization,
-                                  PreBootDma,
-                                  UefiBootOrder,
-                                  LegacyBootOrder,
-                                  Microphone,
-                                  InternalSpeaker,
-                                  WirelessLan,
-                                  BluetoothDevice |                          
-                        Export-Csv uefi_dell.csv -Append -NoTypeInformation
+                        [pscustomobject]$_ |
+                        Select-Object PSComputerName,
+                                      Manufacturer,
+                                      AdminPw,
+                                      AdminMinPwLen,
+                                      AdminMaxPwLen,
+                                      SystemPw,
+                                      SystemMinPwLen,
+                                      SystemMaxPwLen,
+                                      StrongPassword,
+                                      PwdUpperCaseRqd,
+                                      PwdDigitRqd,
+                                      PwdSpecialCharRqd,
+                                      TpmSecurity,
+                                      SecureBoot,
+                                      Virtualization,
+                                      PreBootDma,
+                                      UefiBootOrder,
+                                      LegacyBootOrder,
+                                      Microphone,
+                                      InternalSpeaker,
+                                      WirelessLan,
+                                      BluetoothDevice |                          
+                            Export-Csv uefi_dell.csv -Append -NoTypeInformation
         
-                } elseif($_['Manufacturer'] -eq 'HP') {
+                    } elseif($_['Manufacturer'] -eq 'HP') {
             
-                    [pscustomobject]$_ | 
-                    Select-Object PSComputerName,
-                                  Manufacturer,
-                                  AdminPw,
-                                  AdminMinPwLen,
-                                  AdminMaxPwLen,
-                                  SystemPw,
-                                  SystemMinPwLen,
-                                  SystemMaxPwLen,
-                                  @{Name='PwMinLen'; Expression={$_.'Password Minimum Length'}},
-                                  @{Name='PwdUpperCaseRqdAdminAndUser,'; Expression={$_.'At least one upper case character is required in Administrator and User passwords'}},
-                                  @{Name='PwdLowerCaseRqdAdminAndUser'; Expression={$_.'At least one lower case character is required in Administrator and User passwords'}},
-                                  @{Name='PwdSpecialRqdAdminAndUser'; Expression={$_.'At least one number is required in Administrator and User passwords'}},
-                                  @{Name='PwdDigitRqdAdminAndUser'; Expression={$_.'At least one symbol is required in Administrator and User passwords'}},
-                                  @{Name='TpmVersion'; Expression={$_.'TPM Specification Version'}},
-                                  @{Name='TpmSecurity'; Expression={$_.'TPM State'}},
-                                  @{Name='SecureBoot'; Expression={$_.'Secure Boot'}},
-                                  @{Name='Virtualization-VTx'; Expression={$_.'Virtualization Technology (VTx)'}},
-                                  @{Name='Virtualization-VTd'; Expression={$_.'Virtualization Technology for Directed I/O (VTd)'}},
-                                  @{Name='DmaProtection'; Expression={$_.'DMA Protection'}},
-                                  @{Name='PreBootDma'; Expression={$_.'Pre-boot DMA Protection'}},
-                                  @{Name='RestrictUsbDevices'; Expression={$_.'Restrict USB Devices'}},
-                                  @{Name='ConfigLegacySupportAndSecureBoot'; Expression={$_.'Configure Legacy Support and Secure Boot'}},
-                                  @{Name='UefiBootOrder'; Expression={$_.'UEFI Boot Order'}},
-                                  @{Name='LegacyBootOrder'; Expression={$_.'Legacy Boot Order'}},
-                                  @{Name='CdromBoot'; Expression={$_.'CD-ROM Boot'}},
-                                  @{Name='UsbBoot'; Expression={$_.'USB Storage Boot'}},
-                                  @{Name='PxeBoot'; Expression={$_.'Network (PXE) Boot'}},
-                                  @{Name='IPv6DuringUefiBoot'; Expression={$_.'IPv6 during UEFI Boot'}},
-                                  @{Name='InternalSpeaker'; Expression={$_.'Internal Speakers'}},
-                                  Microphone,
-                                  @{Name='M2WirelessBluetooth'; Expression={$_.'M.2 WLAN/BT'}} |
-                    Export-Csv uefi_hp.csv -Append -NoTypeInformation
+                        [pscustomobject]$_ | 
+                        Select-Object PSComputerName,
+                                      Manufacturer,
+                                      AdminPw,
+                                      AdminMinPwLen,
+                                      AdminMaxPwLen,
+                                      SystemPw,
+                                      SystemMinPwLen,
+                                      SystemMaxPwLen,
+                                      @{Name='PwMinLen'; Expression={$_.'Password Minimum Length'}},
+                                      @{Name='PwdUpperCaseRqdAdminAndUser,'; Expression={$_.'At least one upper case character is required in Administrator and User passwords'}},
+                                      @{Name='PwdLowerCaseRqdAdminAndUser'; Expression={$_.'At least one lower case character is required in Administrator and User passwords'}},
+                                      @{Name='PwdSpecialRqdAdminAndUser'; Expression={$_.'At least one number is required in Administrator and User passwords'}},
+                                      @{Name='PwdDigitRqdAdminAndUser'; Expression={$_.'At least one symbol is required in Administrator and User passwords'}},
+                                      @{Name='TpmVersion'; Expression={$_.'TPM Specification Version'}},
+                                      @{Name='TpmSecurity'; Expression={$_.'TPM State'}},
+                                      @{Name='SecureBoot'; Expression={$_.'Secure Boot'}},
+                                      @{Name='Virtualization-VTx'; Expression={$_.'Virtualization Technology (VTx)'}},
+                                      @{Name='Virtualization-VTd'; Expression={$_.'Virtualization Technology for Directed I/O (VTd)'}},
+                                      @{Name='DmaProtection'; Expression={$_.'DMA Protection'}},
+                                      @{Name='PreBootDma'; Expression={$_.'Pre-boot DMA Protection'}},
+                                      @{Name='RestrictUsbDevices'; Expression={$_.'Restrict USB Devices'}},
+                                      @{Name='ConfigLegacySupportAndSecureBoot'; Expression={$_.'Configure Legacy Support and Secure Boot'}},
+                                      @{Name='UefiBootOrder'; Expression={$_.'UEFI Boot Order'}},
+                                      @{Name='LegacyBootOrder'; Expression={$_.'Legacy Boot Order'}},
+                                      @{Name='CdromBoot'; Expression={$_.'CD-ROM Boot'}},
+                                      @{Name='UsbBoot'; Expression={$_.'USB Storage Boot'}},
+                                      @{Name='PxeBoot'; Expression={$_.'Network (PXE) Boot'}},
+                                      @{Name='IPv6DuringUefiBoot'; Expression={$_.'IPv6 during UEFI Boot'}},
+                                      @{Name='InternalSpeaker'; Expression={$_.'Internal Speakers'}},
+                                      Microphone,
+                                      @{Name='M2WirelessBluetooth'; Expression={$_.'M.2 WLAN/BT'}} |
+                        Export-Csv uefi_hp.csv -Append -NoTypeInformation
+                    }
                 }
-            }
+        }
 
 
         # BitLocker information
-        Write-Host "Remoting: Getting BitLocker information."
-        Get-BrokenPSSessions 'BitLocker'
+        if ($CollectionType.Contains('BitLocker') -or $CollectionType.Contains('All')) {
+            Write-Host "Remoting: Getting BitLocker information."
+            Get-BrokenPSSessions 'BitLocker'
 
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ThrottleLimit $simultaneouPsRemoteSess `
-                       -ScriptBlock {
-                            if(Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue) {
-                                Get-BitLockerVolume -ErrorAction SilentlyContinue
-                            }
-                        } |
-            Select-Object PSComputerName,
-                          MountPoint,
-                          EncryptionMethod,
-                          AutoUnlockEnabled,
-                          AutoUnlockKeyStored,
-                          MetadataVersion,
-                          VolumeStatus,
-                          ProtectionStatus,
-                          LockStatus,
-                          EncryptionPercentage,
-                          WipePercentage,
-                          VolumeType,
-                          @{name='CapacityGB'; expression={[math]::Round($_.CapacityGB, 1)}},
-                          @{Name='KeyProtector'; Expression={$_.KeyProtector -join '|'}} |
-            Export-Csv -Path bitlocker.csv -Append -NoTypeInformation
+            Invoke-Command -Session (Get-OpenPSSessions) `
+                           -ThrottleLimit $simultaneouPsRemoteSess `
+                           -ScriptBlock {
+                                if(Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue) {
+                                    Get-BitLockerVolume -ErrorAction SilentlyContinue
+                                }
+                            } |
+                Select-Object PSComputerName,
+                              MountPoint,
+                              EncryptionMethod,
+                              AutoUnlockEnabled,
+                              AutoUnlockKeyStored,
+                              MetadataVersion,
+                              VolumeStatus,
+                              ProtectionStatus,
+                              LockStatus,
+                              EncryptionPercentage,
+                              WipePercentage,
+                              VolumeType,
+                              @{name='CapacityGB'; expression={[math]::Round($_.CapacityGB, 1)}},
+                              @{Name='KeyProtector'; Expression={$_.KeyProtector -join '|'}} |
+                Export-Csv -Path bitlocker.csv -Append -NoTypeInformation
+        }
 
 
         # Antimalware software information
-        Write-Host "Remoting: Getting antimalware software information."
-        Get-BrokenPSSessions 'Antimalware'
+        if ($CollectionType.Contains('AntiMalware') -or $CollectionType.Contains('All')) {
+            Write-Host "Remoting: Getting antimalware software information."
+            Get-BrokenPSSessions 'Antimalware'
         
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ThrottleLimit $simultaneouPsRemoteSess `
-                       -ScriptBlock {Get-MpComputerStatus -ErrorAction SilentlyContinue} |
-            Select-Object PSComputerName,
-                          AMEngineVersion,
-                          AMProductVersion,
-                          AMRunningMode,
-                          AMServiceEnabled,
-                          AMServiceVersion,
-                          AntispywareEnabled,
-                          AntispywareSignatureLastUpdated,
-                          AntispywareSignatureVersion,
-                          AntivirusEnabled,
-                          AntivirusSignatureLastUpdated,
-                          AntivirusSignatureVersion,
-                          BehaviorMonitorEnabled,
-                          DefenderSignaturesOutOfDate,
-                          DeviceControlDefaultEnforcement,
-                          DeviceControlPoliciesLastUpdated,
-                          DeviceControlState,
-                          FullScanOverdue,
-                          FullScanRequired,
-                          InitializationProgress,
-                          IoavProtectionEnabled,
-                          IsTamperProtected,
-                          IsVirtualMachine,
-                          NISEnabled,
-                          NISEngineVersion,
-                          NISSignatureLastUpdated,
-                          NISSignatureVersion,
-                          OnAccessProtectionEnabled,
-                          QuickScanEndTime,
-                          QuickScanStartTime,
-                          QuickScanOverdue,
-                          QuickScanSignatureVersion,
-                          RealTimeProtectionEnabled,
-                          RebootRequired,
-                          SmartAppControlState,
-                          TamperProtectionSource,
-                          TDTCapable,
-                          TDTMode,
-                          TDTStatus,
-                          TDTTelemetry |
-            Export-Csv -Path antimalware.csv -Append -NoTypeInformation
+            Invoke-Command -Session (Get-OpenPSSessions) `
+                           -ThrottleLimit $simultaneouPsRemoteSess `
+                           -ScriptBlock {Get-MpComputerStatus -ErrorAction SilentlyContinue} |
+                Select-Object PSComputerName,
+                              AMEngineVersion,
+                              AMProductVersion,
+                              AMRunningMode,
+                              AMServiceEnabled,
+                              AMServiceVersion,
+                              AntispywareEnabled,
+                              AntispywareSignatureLastUpdated,
+                              AntispywareSignatureVersion,
+                              AntivirusEnabled,
+                              AntivirusSignatureLastUpdated,
+                              AntivirusSignatureVersion,
+                              BehaviorMonitorEnabled,
+                              DefenderSignaturesOutOfDate,
+                              DeviceControlDefaultEnforcement,
+                              DeviceControlPoliciesLastUpdated,
+                              DeviceControlState,
+                              FullScanOverdue,
+                              FullScanRequired,
+                              InitializationProgress,
+                              IoavProtectionEnabled,
+                              IsTamperProtected,
+                              IsVirtualMachine,
+                              NISEnabled,
+                              NISEngineVersion,
+                              NISSignatureLastUpdated,
+                              NISSignatureVersion,
+                              OnAccessProtectionEnabled,
+                              QuickScanEndTime,
+                              QuickScanStartTime,
+                              QuickScanOverdue,
+                              QuickScanSignatureVersion,
+                              RealTimeProtectionEnabled,
+                              RebootRequired,
+                              SmartAppControlState,
+                              TamperProtectionSource,
+                              TDTCapable,
+                              TDTMode,
+                              TDTStatus,
+                              TDTTelemetry |
+                Export-Csv -Path antimalware.csv -Append -NoTypeInformation
+        }
 
 
         # Physical disk information
-        Write-Host "Remoting: Getting physical disk information."
-        Get-BrokenPSSessions 'PhysicalDisk'
+        if ($CollectionType.Contains('PhysicalDisk') -or $CollectionType.Contains('All')) {
+            Write-Host "Remoting: Getting physical disk information."
+            Get-BrokenPSSessions 'PhysicalDisk'
         
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ThrottleLimit $simultaneouPsRemoteSess `
-                       -ScriptBlock ${function:getPhysicalDiskInfo} |
-            Select-Object PSComputerName,
-                          OperationalStatus,
-                          HealthStatus,
-                          BusType,
-                          MediaType,
-                          SpindleSpeed,
-                          Manufacturer,
-                          Model,
-                          FirmwareVersion,
-                          IsPartial,
-                          LogicalSectorSize,
-                          PhysicalSectorSize,
-                          @{name='AllocatedSizeGB'; expression={[math]::Round($_.AllocatedSize/1GB, 1)}},
-                          @{name='SizeGB'; expression={[math]::Round($_.Size/1GB, 1)}} |
-            Export-Csv -Path physical_disk.csv -Append -NoTypeInformation
+            Invoke-Command -Session (Get-OpenPSSessions) `
+                           -ThrottleLimit $simultaneouPsRemoteSess `
+                           -ScriptBlock ${function:getPhysicalDiskInfo} |
+                Select-Object PSComputerName,
+                              OperationalStatus,
+                              HealthStatus,
+                              BusType,
+                              MediaType,
+                              SpindleSpeed,
+                              Manufacturer,
+                              Model,
+                              FirmwareVersion,
+                              IsPartial,
+                              LogicalSectorSize,
+                              PhysicalSectorSize,
+                              @{name='AllocatedSizeGB'; expression={[math]::Round($_.AllocatedSize/1GB, 1)}},
+                              @{name='SizeGB'; expression={[math]::Round($_.Size/1GB, 1)}} |
+                Export-Csv -Path physical_disk.csv -Append -NoTypeInformation
+        }
 
 
         # Hard drive volume storage information
-        Write-Host "Remoting: Getting hard drive storage information."
-        Get-BrokenPSSessions 'HardDriveInformation'
+        if ($CollectionType.Contains('HdVolumeStorage') -or $CollectionType.Contains('All')) {
+            Write-Host "Remoting: Getting hard drive storage information."
+            Get-BrokenPSSessions 'HardDriveInformation'
 
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ThrottleLimit $simultaneouPsRemoteSess `
-                       -ScriptBlock {Get-PSDrive -PSProvider FileSystem} |
-            Select-Object PSComputerName,
-                          Name,
-                          Root,
-                          Description,
-                          @{name='Used (GB)'; expression={[math]::Round($_.Used/1GB, 2)}},
-                          @{name='Free (GB)'; expression={[math]::Round($_.Free/1GB, 2)}},
-                          @{name='Used (%)'; expression={[math]::Round($_.Used/($_.Used + $_.Free) * 100.0, 0)}},
-                          DisplayRoot |
-            Export-Csv -Path hard_drive_storage.csv -Append -NoTypeInformation
+            Invoke-Command -Session (Get-OpenPSSessions) `
+                           -ThrottleLimit $simultaneouPsRemoteSess `
+                           -ScriptBlock {Get-PSDrive -PSProvider FileSystem} |
+                Select-Object PSComputerName,
+                              Name,
+                              Root,
+                              Description,
+                              @{name='Used (GB)'; expression={[math]::Round($_.Used/1GB, 2)}},
+                              @{name='Free (GB)'; expression={[math]::Round($_.Free/1GB, 2)}},
+                              @{name='Used (%)'; expression={[math]::Round($_.Used/($_.Used + $_.Free) * 100.0, 0)}},
+                              DisplayRoot |
+                Export-Csv -Path hard_drive_storage.csv -Append -NoTypeInformation
+        }
 
 
         # Share permissions
-        Write-Host "Remoting: Getting share permissions."
-        Get-BrokenPSSessions 'SharePermissions'
+        if ($CollectionType.Contains('SharePerms') -or $CollectionType.Contains('All')) {
+            Write-Host "Remoting: Getting share permissions."
+            Get-BrokenPSSessions 'SharePermissions'
         
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ThrottleLimit $simultaneouPsRemoteSess `
-                       -ScriptBlock ${function:getSmbSharePermissions} |
-            Select-Object @{Name='PSComputerName'; Expression={$_.PSComputerName}},
-                          @{Name='Name'; Expression={$_.Name}},
-                          @{Name='AccountName'; Expression={$_.AccountName}},
-                          @{Name='AccessControlType'; Expression={$_.AccessControlType}},
-                          @{Name='AccessRight'; Expression={$_.AccessRight}},
-                          @{Name='Path'; Expression={$_.Path}},
-                          @{Name='Description'; Expression={$_.Description}},
-                          @{Name='ShareType'; Expression={$_.ShareType}},
-                          @{Name='ShareState'; Expression={$_.ShareState}},
-                          @{Name='EncryptData'; Expression={$_.EncryptData}},
-                          @{Name='CurrentUsers'; Expression={$_.CurrentUsers}},
-                          @{Name='FolderEnumerationMode'; Expression={$_.FolderEnumerationMode}} | 
-            Export-Csv -Path share_permissions.csv -Append -NoTypeInformation
+            Invoke-Command -Session (Get-OpenPSSessions) `
+                           -ThrottleLimit $simultaneouPsRemoteSess `
+                           -ScriptBlock ${function:getSmbSharePermissions} |
+                Select-Object @{Name='PSComputerName'; Expression={$_.PSComputerName}},
+                              @{Name='Name'; Expression={$_.Name}},
+                              @{Name='AccountName'; Expression={$_.AccountName}},
+                              @{Name='AccessControlType'; Expression={$_.AccessControlType}},
+                              @{Name='AccessRight'; Expression={$_.AccessRight}},
+                              @{Name='Path'; Expression={$_.Path}},
+                              @{Name='Description'; Expression={$_.Description}},
+                              @{Name='ShareType'; Expression={$_.ShareType}},
+                              @{Name='ShareState'; Expression={$_.ShareState}},
+                              @{Name='EncryptData'; Expression={$_.EncryptData}},
+                              @{Name='CurrentUsers'; Expression={$_.CurrentUsers}},
+                              @{Name='FolderEnumerationMode'; Expression={$_.FolderEnumerationMode}} | 
+                Export-Csv -Path share_permissions.csv -Append -NoTypeInformation
+        }
     
 
         # Downloads, Documents, and Desktop files
-        Write-Host "Remoting: Getting Documents, Desktop, and Downloads file information."
-        Get-BrokenPSSessions 'Files'
+        if ($CollectionType.Contains('LocalFiles') -or $CollectionType.Contains('All')) {
+            Write-Host "Remoting: Getting Documents, Desktop, and Downloads file information."
+            Get-BrokenPSSessions 'Files'
 
-        Invoke-Command -Session (Get-OpenPSSessions) `
-                       -ThrottleLimit $simultaneouPsRemoteSess `
-                       -ScriptBlock {
-                            Get-ChildItem -Path 'C:\Users\*\Downloads\','C:\Users\*\Documents\','C:\Users\*\Desktop\' -Recurse -ErrorAction SilentlyContinue | 
-                            Select-Object Directory,Name,Extension,CreationTime,LastAccessTime,LastWriteTime,Attributes
-                       } |
-	        Select-Object PSComputerName,Directory,Name,Extension,CreationTime,LastAccessTime,LastWriteTime,Attributes |
-            Export-Csv -Path files.csv -Append -NoTypeInformation
+            Invoke-Command -Session (Get-OpenPSSessions) `
+                           -ThrottleLimit $simultaneouPsRemoteSess `
+                           -ScriptBlock {
+                                Get-ChildItem -Path 'C:\Users\*\Downloads\','C:\Users\*\Documents\','C:\Users\*\Desktop\' -Recurse -ErrorAction SilentlyContinue | 
+                                Select-Object Directory,Name,Extension,CreationTime,LastAccessTime,LastWriteTime,Attributes
+                           } |
+	            Select-Object PSComputerName,Directory,Name,Extension,CreationTime,LastAccessTime,LastWriteTime,Attributes |
+                Export-Csv -Path files.csv -Append -NoTypeInformation
+        }
 
 
         Write-Host "Remoting: Removing PowerShell sessions."
