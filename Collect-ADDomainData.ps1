@@ -1,8 +1,8 @@
 <#
 .SYNOPSIS
-    Collects various Windows workstation and server and/or domain datasets: local user accounts, local group memberships, processes, scheduled tasks, services, network connections, locally saved files, 32/64-bit installed programs, general system information, installed hot fixes, shares, share permissions, Active Directory users|computers|group memberships, Windows DHCP server scopes and leases, and Windows Server installed roles and features.
+    Collects various Windows workstation and server and/or domain datasets: local user accounts, local group memberships, processes, modules, scheduled tasks, services, network connections, locally saved files, 32/64-bit installed programs, general system information, installed hot fixes, shares, share permissions, Active Directory users|computers|group memberships, Windows DHCP server scopes and leases, and Windows Server share NtFS permissions and installed roles and features.
 .DESCRIPTION
-    By default this script collects various system datasets from workstations and servers in a Windows Active Directory (AD) domain environment as well as some AD datasets.  It also has an option to collect the same datasets for the local system.  This can be useful for non-domain joined (i.e., "standalone") systems.
+    By default this script collects various system datasets from workstations and servers in a Windows Active Directory (AD) domain environment as well as some AD datasets.  It also has an option to collect the same datasets for a local system.  This can be useful for non-domain joined (i.e., "standalone") systems.
 .PARAMETER OUName
     The specific OU name of interest.  Can be used to limit the collection scope in a domain environment.
 .PARAMETER Migrated
@@ -22,17 +22,17 @@
 .PARAMETER LocalCollectionOnly
     Collect the datasets on the local system (does not use PowerShell remoting functionality).
 .PARAMETER CollectionTypes
-    Option to change the collection sets.  The default is all collection types except for modules or NTFS share permissions.  Options include: All, LocalGroups, LocalUsers, Processes, ScheduledTasks, Services, NetConnects, 64bitProgs, 32bitProgs, SystemInfo, HotFix, Uefi, BitLocker, AntiMalware, PhysicalDisk, HdVolumeStorage, SharePerms, ShareNtfs, and LocalFiles.  Three special options include All, DefaultPlusModules, and DefaultPlusShareNtfs.
+    Option to change the collection sets.  The default is all collection types except for modules or NTFS share permissions.  Options include: All, LocalGroups, LocalUsers, Processes, ScheduledTasks, Services, NetConnects, 64bitProgs, 32bitProgs, SystemInfo, HotFix, Uefi, BitLocker, AntiMalware, PhysicalDisk, HdVolumeStorage, SharePerms, and LocalFiles.  Two special options include All and DefaultPlusModules (but as of now they are the same).
 .PARAMETER DHCPServer
     Specify the server name if collecting Windows DHCP server scope and lease information with other domain data.
 .PARAMETER IncludeServerFeatures
-    Collect installed Windows Server feature and role information with other domain data.
+    Collect installed Windows Server feature and role information and SMB share NTFS permissions with other domain data.
 .PARAMETER IncludeActiveDirectory
     Collect AD database user object and group membership information with other domain data.
 .PARAMETER DHCPOnly
     Only collect Windows DHCP server scope and lease information.  The DHCP server name must also be provided with the -DHCPServer option.
 .PARAMETER ServerFeaturesOnly
-    Only collect installed Windows Server feature and role information.
+    Only collect installed Windows Server feature and role information and SMB share NTFS permissions.
 .PARAMETER ActiveDirectoryOnly
     Only collect AD database user object and group membership information.
 .PARAMETER FailedWinRM
@@ -47,8 +47,11 @@
     .\Collect-ADDomainData.ps1 -OUName 'Finance'
     Collects datasets for domain systems using the AD domain distinguished name of the script host and the specified Organization Unit (OU).
 .EXAMPLE
+    .\Collect-ADDomainData.ps1 -OUName 'Finance' -CollectionTypes Processes,Modules,ScheduledTasks,Services
+    Collects only the processes, modules, scheduled tasks, and services datasets for domain systems using the AD domain distinguished name of the script host and the specified Organization Unit (OU).
+.EXAMPLE
     .\Collect-ADDomainData.ps1 -OUName 'Finance' -DHCPServer dhcpsvr01 -IncludeServerFeatures -IncludeActiveDirectory
-    Collects datasets for domain systems using the AD domain distinguished name of the script host and the specified Organization Unit (OU).  It also collects Windows DHCP server scopes and leases, Windows Server feature and roles information, and Active Directory datasets.
+    Collects datasets for domain systems using the AD domain distinguished name of the script host and the specified Organization Unit (OU).  It also collects Windows DHCP server scopes and leases, Windows Server feature and roles information, Windows Server SMB share NtFS permissions, and Active Directory datasets.
 .EXAMPLE
     .\Collect-ADDomainData.ps1 -DHCPServer dhcpsvr01,dhcpsvr02 -DHCPOnly
     Collects only Windows DHCP server scope and lease information.
@@ -63,7 +66,10 @@
     Collects the datasets for the local system on the script host.
 .EXAMPLE
     .\Collect-ADDomainData.ps1 -LocalCollectionOnly -IncludeServerFeatures
-    Collects the datasets for the local system on the script host and also gets the installed server features.
+    Collects the datasets for the local system on the script host and also gets the installed server features and SMB share NtFS permissions.
+.EXAMPLE
+    .\Collect-ADDomainData.ps1 -LocalCollectionOnly -CollectionTypes All
+    Collects all datasets, including modules, for the local system on the script host.
 .EXAMPLE
 	.\Collect-ADDomainData.ps1 -OUName Manila -Migrated -Region Asia -SearchBase 'ou=location,dc=company,dc=org' -Server company.org -PSRemotingLimit 256
     Run with the OUName parameter and the Migrated switch to target a specific OU location of interest.  You must also specify the Region, SearchBase, and Server paramters for any query with the Migrated switch.
@@ -89,7 +95,7 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.73
+    Version 1.0.74
     Author: Sam Pursglove
     Last modified: 30 June 2026
 
@@ -166,7 +172,7 @@ param (
     [Parameter(ParameterSetName='Migrated', Mandatory=$False, HelpMessage='Specify dataset collection (default: All except Modules and NTFS)')]
     [Parameter(ParameterSetName='Local', Mandatory=$False, HelpMessage='Specify dataset collection (default: All except Modules and NTFS)')]
     [Parameter(ParameterSetName='List', Mandatory=$False, HelpMessage='Specify dataset collection (default: All except Modules and NTFS)')]
-    [ValidateSet('All','LocalGroups','LocalUsers','Processes','Modules','ScheduledTasks','Services','NetConnects','64bitProgs','32bitProgs','SystemInfo','HotFix','Uefi','BitLocker','AntiMalware','PhysicalDisk','HdVolumeStorage','SharePerms','ShareNtfs','LocalFiles','DefaultPlusModules','DefaultPlusShareNtfs')]
+    [ValidateSet('All','LocalGroups','LocalUsers','Processes','Modules','ScheduledTasks','Services','NetConnects','64bitProgs','32bitProgs','SystemInfo','HotFix','Uefi','BitLocker','AntiMalware','PhysicalDisk','HdVolumeStorage','SharePerms','LocalFiles','DefaultPlusModules')]
     [string[]]$CollectionTypes = @(),
 
     [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Use alternate, non-default smart card credentials')]
@@ -523,7 +529,6 @@ function getScheduledTasks {
             }
         }            
         
-
         @{
             TaskName       = $taskName
             TaskPath       = $task.TaskPath
@@ -918,35 +923,20 @@ function setCollectionTypes {
     
     [string[]]$colTypeReturn = @()
 
-    # Set the baseline collection types (all except Modules and ShareNtfs permissions)
-    if (-not $colType -or $colType.Contains('All') -or $colType.Contains('DefaultPlusModules') -or $colType.Contains('DefaultPlusShareNtfs')) {
+    # Set the baseline collection types (all except Modules)
+    if (-not $colType -or $colType.Contains('All') -or $colType.Contains('DefaultPlusModules')) {
         $colTypeReturn = @('LocalGroups','LocalUsers','Processes','ScheduledTasks','Services','NetConnects','64bitProg','32bitProg','SystemInfo','HotFix','Uefi','BitLocker','AntiMalware','PhysicalDisk','HdVolumeStorage','SharePerms','LocalFiles')
 
         # collect All data types
         if ($colType.Contains('All')) {
-            $colTypeReturn += 'Modules','ShareNtfs'
+            $colTypeReturn += 'Modules'
         }
     
-        # collect the default/baseline data type plus add Modules
+        # collect the default/baseline data type plus add Modules (currently no different than the All option)
         if ($colType.Contains('DefaultPlusModules')) {
             $colTypeReturn += 'Modules'
-
-            # added to get a weird user input edge case if they specify 'DefaultPlusModules','ShareNtfs' instead of doing All
-            if ($colType.Contains('ShareNtfs')) {
-                $colTypeReturn += 'ShareNtfs'
-            }
         } 
     
-        # collect the default/baseline data type plus add ShareNtfs
-        if ($colType.Contains('DefaultPlusShareNtfs')) {
-            $colTypeReturn += 'ShareNtfs'
-
-            # added to get a weird user input edge case if they specify 'DefaultPlusShareNtfs','Modules' instead of doing All
-            if ($colType.Contains('Modules')) {
-                $colTypeReturn += 'Modules'
-            }
-        }
-
     # case where individual collection types are specified, simply return that
     } else {
         $colTypeReturn = $colType
@@ -1207,12 +1197,12 @@ function Collect-LocalSystemData {
                                     SecureBoot,
                                     Virtualization,
                                     PreBootDma,
-                                    UefiBootOrder,
-                                    LegacyBootOrder,
                                     Microphone,
                                     InternalSpeaker,
                                     WirelessLan,
-                                    BluetoothDevice |                          
+                                    BluetoothDevice,
+                                    UefiBootOrder,
+                                    LegacyBootOrder |                          
                         Export-Csv uefi_dell.csv -Append -NoTypeInformation
         
                 } elseif($_['Manufacturer'] -eq 'HP') {
@@ -1240,15 +1230,15 @@ function Collect-LocalSystemData {
                                     @{Name='PreBootDma'; Expression={$_.'Pre-boot DMA Protection'}},
                                     @{Name='RestrictUsbDevices'; Expression={$_.'Restrict USB Devices'}},
                                     @{Name='ConfigLegacySupportAndSecureBoot'; Expression={$_.'Configure Legacy Support and Secure Boot'}},
-                                    @{Name='UefiBootOrder'; Expression={$_.'UEFI Boot Order'}},
-                                    @{Name='LegacyBootOrder'; Expression={$_.'Legacy Boot Order'}},
                                     @{Name='CdromBoot'; Expression={$_.'CD-ROM Boot'}},
                                     @{Name='UsbBoot'; Expression={$_.'USB Storage Boot'}},
                                     @{Name='PxeBoot'; Expression={$_.'Network (PXE) Boot'}},
                                     @{Name='IPv6DuringUefiBoot'; Expression={$_.'IPv6 during UEFI Boot'}},
-                                    @{Name='InternalSpeaker'; Expression={$_.'Internal Speakers'}},
                                     Microphone,
-                                    @{Name='M2WirelessBluetooth'; Expression={$_.'M.2 WLAN/BT'}} |
+                                    @{Name='InternalSpeaker'; Expression={$_.'Internal Speakers'}},
+                                    @{Name='M2WirelessBluetooth'; Expression={$_.'M.2 WLAN/BT'}},
+                                    @{Name='UefiBootOrder'; Expression={$_.'UEFI Boot Order'}},
+                                    @{Name='LegacyBootOrder'; Expression={$_.'Legacy Boot Order'}} |
                     Export-Csv uefi_hp.csv -Append -NoTypeInformation
                 }
             }
@@ -2101,12 +2091,12 @@ function Collect-RemoteSystemData {
                                       SecureBoot,
                                       Virtualization,
                                       PreBootDma,
-                                      UefiBootOrder,
-                                      LegacyBootOrder,
                                       Microphone,
                                       InternalSpeaker,
                                       WirelessLan,
-                                      BluetoothDevice |                          
+                                      BluetoothDevice,
+                                      UefiBootOrder,
+                                      LegacyBootOrder |                          
                             Export-Csv uefi_dell.csv -Append -NoTypeInformation
         
                     } elseif($_['Manufacturer'] -eq 'HP') {
@@ -2134,15 +2124,15 @@ function Collect-RemoteSystemData {
                                       @{Name='PreBootDma'; Expression={$_.'Pre-boot DMA Protection'}},
                                       @{Name='RestrictUsbDevices'; Expression={$_.'Restrict USB Devices'}},
                                       @{Name='ConfigLegacySupportAndSecureBoot'; Expression={$_.'Configure Legacy Support and Secure Boot'}},
-                                      @{Name='UefiBootOrder'; Expression={$_.'UEFI Boot Order'}},
-                                      @{Name='LegacyBootOrder'; Expression={$_.'Legacy Boot Order'}},
                                       @{Name='CdromBoot'; Expression={$_.'CD-ROM Boot'}},
                                       @{Name='UsbBoot'; Expression={$_.'USB Storage Boot'}},
                                       @{Name='PxeBoot'; Expression={$_.'Network (PXE) Boot'}},
                                       @{Name='IPv6DuringUefiBoot'; Expression={$_.'IPv6 during UEFI Boot'}},
-                                      @{Name='InternalSpeaker'; Expression={$_.'Internal Speakers'}},
                                       Microphone,
-                                      @{Name='M2WirelessBluetooth'; Expression={$_.'M.2 WLAN/BT'}} |
+                                      @{Name='InternalSpeaker'; Expression={$_.'Internal Speakers'}},
+                                      @{Name='M2WirelessBluetooth'; Expression={$_.'M.2 WLAN/BT'}},
+                                      @{Name='UefiBootOrder'; Expression={$_.'UEFI Boot Order'}},
+                                      @{Name='LegacyBootOrder'; Expression={$_.'Legacy Boot Order'}} |
                         Export-Csv uefi_hp.csv -Append -NoTypeInformation
                     }
                 }
@@ -2323,13 +2313,111 @@ function Collect-RemoteSystemData {
 }
 
 
+# Get share NTFS permissions
+function getSmbNtfsPermissions {
+
+    # dictionary for access right translation
+    $accessMask = [ordered]@{
+        [int32]'0x80000000' = 'GenericRead'
+        [int32]'0x40000000' = 'GenericWrite'
+        [int32]'0x20000000' = 'GenericExecute'
+        [int32]'0x10000000' = 'GenericAll'
+        [int32]'0x02000000' = 'MaximumAllowed'
+        [int32]'0x01000000' = 'AccessSystemSecurity'
+        [int32]'0x00100000' = 'Synchronize'
+        [int32]'0x00080000' = 'TakeOwnership'	  # using the Windows GUI version for WriteOwner
+        [int32]'0x00040000' = 'ChangePermissions' # using the Windows GUI version for WriteDAC
+        [int32]'0x00020000' = 'ReadPermissions'   # using the Windows GUI version for ReadControl
+        [int32]'0x00010000' = 'Delete'
+        [int32]'0x00000100' = 'WriteAttributes'
+        [int32]'0x00000080' = 'ReadAttributes'
+        [int32]'0x00000040' = 'DeleteChild'
+        [int32]'0x00000020' = 'Execute/Traverse'
+        [int32]'0x00000010' = 'WriteExtendedAttributes'
+        [int32]'0x00000008' = 'ReadExtendedAttributes'
+        [int32]'0x00000004' = 'AppendData/AddSubdirectory'
+        [int32]'0x00000002' = 'WriteData/AddFile'
+        [int32]'0x00000001' = 'ReadData/ListDirectory'
+    }
+
+    $accesses = Get-SmbShare | 
+        Where-Object {$_.ShareType -eq 'FileSystemDirectory'} | 
+        ForEach-Object {
+            try {
+                # added to avoid Constrained Language Mode issues
+                $computer = (Resolve-DnsName -Name $env:COMPUTERNAME -Type A -ErrorAction SilentlyContinue)[0].Name
+                if(-not $computer) {
+                    $computer = $env:COMPUTERNAME
+                }
+                    
+                $currentShare = $_.Name
+                "\\$computer\$currentShare" | Get-Acl -ErrorAction Stop
+                
+            # Maintain a record of a SMB share even if NTFS permissions read access is denied
+            } catch [UnauthorizedAccessException] {
+                New-Object PSObject -Property @{
+                    PSComputerName   = $computer
+                    Path             = $currentShare
+                }
+            } 
+        }
+
+    # Output each unique NTFS permission record
+    foreach($access in $accesses) {
+
+        # Confirm the object type is AccessControl.FileSecurity from the Get-Acl cmdlet
+        if($access -is [System.Security.AccessControl.DirectorySecurity]) {
+            foreach($permission in ($access.Access)) {
+         
+                if($permission.FileSystemRights -match "[-0-9]+") {                  
+                    $fileSystemRights = ($accessMask.Keys | Where-Object {$permission.FileSystemRights.Value__ -band $_ } | ForEach-Object { $accessMask.($_) } ) -join ', '
+                } else {
+                    $fileSystemRights = $permission.FileSystemRights
+                }
+
+                $cleanPath = $access.Path -replace 'Microsoft.PowerShell.Core\\FileSystem::\\\\',''
+                $pathElements = $cleanPath -split '\\'
+
+                @{
+                    PSComputerName   = $pathElements[0]
+                    Path             = $pathElements[1]
+                    Owner            = $access.Owner
+                    Group            = $access.Group
+                    Identity         = $permission.IdentityReference
+                    Access           = $permission.AccessControlType
+                    Rights           = $fileSystemRights            
+                    IsInherited      = $permission.IsInherited
+                    InheritanceFlags = $permission.InheritanceFlags
+                    PropagationFlags = $permission.PropagationFlags
+                }
+            }
+
+        # Output a record of any SMB share even if the NTFS permissions read access was denied
+        } else {       
+            @{
+                PSComputerName   = $access.PSComputerName
+                Path             = $access.Path
+                Owner            = 'Access denied'
+                Group            = 'Access denied'
+                Identity         = 'Access denied'
+                Access           = 'Access denied'
+                Rights           = 'Access denied'
+                IsInherited      = 'Access denied'
+                InheritanceFlags = 'Access denied'
+                PropagationFlags = 'Access denied'
+            }
+        }
+    }
+}
+
+
 function Collect-ServerFeatures {
     Param($DN)
 
     if (-not $LocalCollectionOnly) {
         # Collect server domain computer objects or retry systems that previously failed WinRM connection attempts
         if($FailedWinRM) {
-            Write-Host "Remoting Server: Getting previously failed PSRemoting domain computer objects."
+            Write-Host "Remoting server: Getting previously failed PSRemoting domain computer objects."
             $winServers = Try-FailedWinRM $DN -ServersOnly
         
         # Collect computer objects based on a user supplied list of target server systems, does not perform any AD lookups
@@ -2337,18 +2425,18 @@ function Collect-ServerFeatures {
             $winServers = $SystemList
         
         } else {
-            Write-Host "Remoting Server: Getting server OS domain computer objects."
+            Write-Host "Remoting server: Getting server OS domain computer objects."
             $winServers = Get-DomainComputerObjects $DN -ServersOnly
         }
     
         # ensure computer objects exist before proceeding, otherwise exit the function
         if($winServers -eq $null) {
-            Write-Host "Remoting Server: No server computer objects found, exiting remote server collection."
+            Write-Host "Remoting server: No server computer objects found, exiting remote server collection."
             return
         }
 
         # Using the $computers.Name array method to create PS remoting sessions due to speed (compared to foreach)
-        Write-Host "Remoting Server: Creating PowerShell server sessions."
+        Write-Host "Remoting server: Creating PowerShell server sessions."
          
 
         if(-not $scipt:sessArgs) {
@@ -2380,12 +2468,12 @@ function Collect-ServerFeatures {
         $totalSessions = ($serverSessions | Measure-Object).Count
         
         if($totalSessions -eq 0) {
-            Write-Host "Remoting Server: $totalSessions PowerShell server sessions created, exiting remote server collection."
+            Write-Host "Remoting server: $totalSessions PowerShell server sessions created, exiting remote server collection."
             return
         } elseif($totalSessions -eq 1) {
-            Write-Host "Remoting Server: $totalSessions PowerShell server session created."
+            Write-Host "Remoting server: $totalSessions PowerShell server session created."
         } else {
-            Write-Host "Remoting Server: $totalSessions PowerShell server sessions created."
+            Write-Host "Remoting server: $totalSessions PowerShell server sessions created."
         }
 
 
@@ -2403,22 +2491,57 @@ function Collect-ServerFeatures {
         }
 
         # Windows Server installed features
-        Write-Host "Remoting Server: Getting installed features."
+        Write-Host "Remoting server: Getting installed features."
         Invoke-Command -Session $serverSessions -ScriptBlock {Get-WindowsFeature | Where-Object {$_.InstallState -eq 'Installed'} | Select-Object Name,DisplayName,Description,InstallState,Parent,Depth,Path,FeatureType} | 
             Select-Object PSComputerName,Name,DisplayName,Description,InstallState,Parent,Depth,Path,FeatureType |
 	        Export-Csv -Path windows_server_features.csv -Append -NoTypeInformation
 
-        Write-Host "Remoting Server: Removing PowerShell server sessions."
+
+        # SMB NTFS permissions collection
+        Write-Host "Remoting server: Getting share NTFS permissions."
+        Invoke-Command -Session $serverSessions -ScriptBlock ${function:getSmbNtfsPermissions} |
+            # Hash table returned to avoid Constrained Language Mode issues with PSCustomObject
+            Select-Object @{Name='PSComputerName'; Expression={$_.PSComputerName}},
+                          @{Name='Path'; Expression={$_.Path}},
+                          @{Name='Owner'; Expression={$_.Owner}},
+                          @{Name='Group'; Expression={$_.Group}},
+                          @{Name='Identity'; Expression={$_.Identity}},
+                          @{Name='Access'; Expression={$_.Access}},
+                          @{Name='Rights'; Expression={$_.Rights}},
+                          @{Name='IsInherited'; Expression={$_.IsInherited}},
+                          @{Name='InheritanceFlags'; Expression={$_.InheritanceFlags}},
+                          @{Name='PropagationFlags'; Expression={$_.PropagationFlags}} |
+            Export-Csv -Path share_ntfs_permissions.csv -Append -NoTypeInformation
+
+
+        Write-Host "Remoting server: Removing PowerShell server sessions."
         $serverSessions | Remove-PSSession
     
-    # server features local collection
     } else {
-
+        # server features local collection
         Write-Host "Local server: Getting installed features."
         Get-WindowsFeature | 
             Where-Object {$_.InstallState -eq 'Installed'} | 
             Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,DisplayName,Description,InstallState,Parent,Depth,Path,FeatureType | 
 	        Export-Csv -Path windows_server_features.csv -Append -NoTypeInformation
+
+
+        # SMB NTFS permissions local collection
+        Write-Host "Local server: Getting share NTFS permissions."
+        getSmbNtfsPermissions |
+            # Hash table returned to avoid Constrained Language Mode issues with PSCustomObject
+            Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},
+                          @{Name='Path'; Expression={$_.Path}},
+                          @{Name='Owner'; Expression={$_.Owner}},
+                          @{Name='Group'; Expression={$_.Group}},
+                          @{Name='Identity'; Expression={$_.Identity}},
+                          @{Name='Access'; Expression={$_.Access}},
+                          @{Name='Rights'; Expression={$_.Rights}},
+                          @{Name='IsInherited'; Expression={$_.IsInherited}},
+                          @{Name='InheritanceFlags'; Expression={$_.InheritanceFlags}},
+                          @{Name='PropagationFlags'; Expression={$_.PropagationFlags}} |
+            Export-Csv -Path share_ntfs_permissions.csv -Append -NoTypeInformation
+
     }
 }
 
