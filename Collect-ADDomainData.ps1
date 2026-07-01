@@ -95,7 +95,7 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.75
+    Version 1.0.76
     Author: Sam Pursglove
     Last modified: 01 July 2026
 
@@ -925,7 +925,7 @@ function setCollectionTypes {
 
     # Set the baseline collection types (all except Modules)
     if (-not $colType -or $colType.Contains('All') -or $colType.Contains('DefaultPlusModules')) {
-        $colTypeReturn = @('LocalGroups','LocalUsers','Processes','ScheduledTasks','Services','NetConnects','64bitProg','32bitProg','SystemInfo','HotFix','Uefi','BitLocker','AntiMalware','PhysicalDisk','HdVolumeStorage','SharePerms','LocalFiles')
+        $colTypeReturn = @('LocalGroups','LocalUsers','Processes','ScheduledTasks','Services','NetConnects','64bitProgs','32bitProgs','SystemInfo','HotFix','Uefi','BitLocker','AntiMalware','PhysicalDisk','HdVolumeStorage','SharePerms','LocalFiles')
 
         # collect All data types
         if ($colType.Contains('All')) {
