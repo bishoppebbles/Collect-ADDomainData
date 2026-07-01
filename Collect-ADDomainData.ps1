@@ -95,9 +95,9 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.74
+    Version 1.0.75
     Author: Sam Pursglove
-    Last modified: 30 June 2026
+    Last modified: 01 July 2026
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -1165,7 +1165,7 @@ function Collect-LocalSystemData {
                     HotFixID       = $_.HotFixID
                     Description    = $_.Description
                     InstalledOn    = $_.InstalledOn
-                    PSComputerName = $hotFixes.CsName
+                    PSComputerName = $CompInfo.CsName
                 }
             } | 
             Select-Object PSComputerName,HotFixID,Description,InstalledOn | 
@@ -1182,63 +1182,63 @@ function Collect-LocalSystemData {
             
                     [pscustomobject]$_ |
                     Select-Object PSComputerName,
-                                    Manufacturer,
-                                    AdminPw,
-                                    AdminMinPwLen,
-                                    AdminMaxPwLen,
-                                    SystemPw,
-                                    SystemMinPwLen,
-                                    SystemMaxPwLen,
-                                    StrongPassword,
-                                    PwdUpperCaseRqd,
-                                    PwdDigitRqd,
-                                    PwdSpecialCharRqd,
-                                    TpmSecurity,
-                                    SecureBoot,
-                                    Virtualization,
-                                    PreBootDma,
-                                    Microphone,
-                                    InternalSpeaker,
-                                    WirelessLan,
-                                    BluetoothDevice,
-                                    UefiBootOrder,
-                                    LegacyBootOrder |                          
+                                   Manufacturer,
+                                   AdminPw,
+                                   AdminMinPwLen,
+                                   AdminMaxPwLen,
+                                   SystemPw,
+                                   SystemMinPwLen,
+                                   SystemMaxPwLen,
+                                   StrongPassword,
+                                   PwdUpperCaseRqd,
+                                   PwdDigitRqd,
+                                   PwdSpecialCharRqd,
+                                   TpmSecurity,
+                                   SecureBoot,
+                                   Virtualization,
+                                   PreBootDma,
+                                   Microphone,
+                                   InternalSpeaker,
+                                   WirelessLan,
+                                   BluetoothDevice,
+                                   UefiBootOrder,
+                                   LegacyBootOrder |                          
                         Export-Csv uefi_dell.csv -Append -NoTypeInformation
         
                 } elseif($_['Manufacturer'] -eq 'HP') {
             
                     [pscustomobject]$_ | 
                     Select-Object PSComputerName,
-                                    Manufacturer,
-                                    AdminPw,
-                                    AdminMinPwLen,
-                                    AdminMaxPwLen,
-                                    SystemPw,
-                                    SystemMinPwLen,
-                                    SystemMaxPwLen,
-                                    @{Name='PwMinLen'; Expression={$_.'Password Minimum Length'}},
-                                    @{Name='PwdUpperCaseRqdAdminAndUser,'; Expression={$_.'At least one upper case character is required in Administrator and User passwords'}},
-                                    @{Name='PwdLowerCaseRqdAdminAndUser'; Expression={$_.'At least one lower case character is required in Administrator and User passwords'}},
-                                    @{Name='PwdSpecialRqdAdminAndUser'; Expression={$_.'At least one number is required in Administrator and User passwords'}},
-                                    @{Name='PwdDigitRqdAdminAndUser'; Expression={$_.'At least one symbol is required in Administrator and User passwords'}},
-                                    @{Name='TpmVersion'; Expression={$_.'TPM Specification Version'}},
-                                    @{Name='TpmSecurity'; Expression={$_.'TPM State'}},
-                                    @{Name='SecureBoot'; Expression={$_.'Secure Boot'}},
-                                    @{Name='Virtualization-VTx'; Expression={$_.'Virtualization Technology (VTx)'}},
-                                    @{Name='Virtualization-VTd'; Expression={$_.'Virtualization Technology for Directed I/O (VTd)'}},
-                                    @{Name='DmaProtection'; Expression={$_.'DMA Protection'}},
-                                    @{Name='PreBootDma'; Expression={$_.'Pre-boot DMA Protection'}},
-                                    @{Name='RestrictUsbDevices'; Expression={$_.'Restrict USB Devices'}},
-                                    @{Name='ConfigLegacySupportAndSecureBoot'; Expression={$_.'Configure Legacy Support and Secure Boot'}},
-                                    @{Name='CdromBoot'; Expression={$_.'CD-ROM Boot'}},
-                                    @{Name='UsbBoot'; Expression={$_.'USB Storage Boot'}},
-                                    @{Name='PxeBoot'; Expression={$_.'Network (PXE) Boot'}},
-                                    @{Name='IPv6DuringUefiBoot'; Expression={$_.'IPv6 during UEFI Boot'}},
-                                    Microphone,
-                                    @{Name='InternalSpeaker'; Expression={$_.'Internal Speakers'}},
-                                    @{Name='M2WirelessBluetooth'; Expression={$_.'M.2 WLAN/BT'}},
-                                    @{Name='UefiBootOrder'; Expression={$_.'UEFI Boot Order'}},
-                                    @{Name='LegacyBootOrder'; Expression={$_.'Legacy Boot Order'}} |
+                                  Manufacturer,
+                                  AdminPw,
+                                  AdminMinPwLen,
+                                  AdminMaxPwLen,
+                                  SystemPw,
+                                  SystemMinPwLen,
+                                  SystemMaxPwLen,
+                                  @{Name='PwMinLen'; Expression={$_.'Password Minimum Length'}},
+                                  @{Name='PwdUpperCaseRqdAdminAndUser,'; Expression={$_.'At least one upper case character is required in Administrator and User passwords'}},
+                                  @{Name='PwdLowerCaseRqdAdminAndUser'; Expression={$_.'At least one lower case character is required in Administrator and User passwords'}},
+                                  @{Name='PwdSpecialRqdAdminAndUser'; Expression={$_.'At least one number is required in Administrator and User passwords'}},
+                                  @{Name='PwdDigitRqdAdminAndUser'; Expression={$_.'At least one symbol is required in Administrator and User passwords'}},
+                                  @{Name='TpmVersion'; Expression={$_.'TPM Specification Version'}},
+                                  @{Name='TpmSecurity'; Expression={$_.'TPM State'}},
+                                  @{Name='SecureBoot'; Expression={$_.'Secure Boot'}},
+                                  @{Name='Virtualization-VTx'; Expression={$_.'Virtualization Technology (VTx)'}},
+                                  @{Name='Virtualization-VTd'; Expression={$_.'Virtualization Technology for Directed I/O (VTd)'}},
+                                  @{Name='DmaProtection'; Expression={$_.'DMA Protection'}},
+                                  @{Name='PreBootDma'; Expression={$_.'Pre-boot DMA Protection'}},
+                                  @{Name='RestrictUsbDevices'; Expression={$_.'Restrict USB Devices'}},
+                                  @{Name='ConfigLegacySupportAndSecureBoot'; Expression={$_.'Configure Legacy Support and Secure Boot'}},
+                                  @{Name='CdromBoot'; Expression={$_.'CD-ROM Boot'}},
+                                  @{Name='UsbBoot'; Expression={$_.'USB Storage Boot'}},
+                                  @{Name='PxeBoot'; Expression={$_.'Network (PXE) Boot'}},
+                                  @{Name='IPv6DuringUefiBoot'; Expression={$_.'IPv6 during UEFI Boot'}},
+                                  Microphone,
+                                  @{Name='InternalSpeaker'; Expression={$_.'Internal Speakers'}},
+                                  @{Name='M2WirelessBluetooth'; Expression={$_.'M.2 WLAN/BT'}},
+                                  @{Name='UefiBootOrder'; Expression={$_.'UEFI Boot Order'}},
+                                  @{Name='LegacyBootOrder'; Expression={$_.'Legacy Boot Order'}} |
                     Export-Csv uefi_hp.csv -Append -NoTypeInformation
                 }
             }
@@ -2541,7 +2541,6 @@ function Collect-ServerFeatures {
                           @{Name='InheritanceFlags'; Expression={$_.InheritanceFlags}},
                           @{Name='PropagationFlags'; Expression={$_.PropagationFlags}} |
             Export-Csv -Path share_ntfs_permissions.csv -Append -NoTypeInformation
-
     }
 }
 
