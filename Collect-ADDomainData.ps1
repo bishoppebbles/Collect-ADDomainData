@@ -22,7 +22,7 @@
 .PARAMETER LocalCollectionOnly
     Collect the datasets on the local system (does not use PowerShell remoting functionality).
 .PARAMETER CollectionTypes
-    Option to change the collection sets.  The default is all collection types except for modules or NTFS share permissions.  Options include: All, LocalGroups, LocalUsers, Processes, ScheduledTasks, Services, NetConnects, 64bitProgs, 32bitProgs, SystemInfo, HotFix, Uefi, BitLocker, AntiMalware, PhysicalDisk, HdVolumeStorage, SharePerms, and LocalFiles.  Two special options include All and DefaultPlusModules (but as of now they are the same).
+    Option to change the collection sets.  The default is all collection types except for modules or NTFS share permissions.  Options include: All, LocalGroups, LocalUsers, Processes, ScheduledTasks, Services, NetConnects, Programs, SystemInfo, HotFix, Uefi, BitLocker, AntiMalware, PhysicalDisk, HdVolumeStorage, SharePerms, and LocalFiles.  Two special options include All and DefaultPlusModules (but as of now they are the same).
 .PARAMETER DHCPServer
     Specify the server name if collecting Windows DHCP server scope and lease information with other domain data.
 .PARAMETER IncludeServerFeatures
@@ -95,9 +95,9 @@
     Collect-ADDomainData.ps1 -SystemList 'svr1.domain.com','svr2.domain.com','svr3.domain.com'
     This command attempts to pull all system names (recommend FQDN) as defined on the commandline.  It performs no Active Directory lookups.
 .NOTES
-    Version 1.0.76
+    Version 1.0.77
     Author: Sam Pursglove
-    Last modified: 01 July 2026
+    Last modified: 02 July 2026
 
     FakeHyena name credit goes to Kennon Lee.
 
@@ -172,7 +172,7 @@ param (
     [Parameter(ParameterSetName='Migrated', Mandatory=$False, HelpMessage='Specify dataset collection (default: All except Modules and NTFS)')]
     [Parameter(ParameterSetName='Local', Mandatory=$False, HelpMessage='Specify dataset collection (default: All except Modules and NTFS)')]
     [Parameter(ParameterSetName='List', Mandatory=$False, HelpMessage='Specify dataset collection (default: All except Modules and NTFS)')]
-    [ValidateSet('All','LocalGroups','LocalUsers','Processes','Modules','ScheduledTasks','Services','NetConnects','64bitProgs','32bitProgs','SystemInfo','HotFix','Uefi','BitLocker','AntiMalware','PhysicalDisk','HdVolumeStorage','SharePerms','LocalFiles','DefaultPlusModules')]
+    [ValidateSet('All','LocalGroups','LocalUsers','Processes','Modules','ScheduledTasks','Services','NetConnects','Programs','SystemInfo','HotFix','Uefi','BitLocker','AntiMalware','PhysicalDisk','HdVolumeStorage','SharePerms','LocalFiles','DefaultPlusModules')]
     [string[]]$CollectionTypes = @(),
 
     [Parameter(ParameterSetName='Domain', Mandatory=$False, HelpMessage='Use alternate, non-default smart card credentials')]
@@ -925,7 +925,7 @@ function setCollectionTypes {
 
     # Set the baseline collection types (all except Modules)
     if (-not $colType -or $colType.Contains('All') -or $colType.Contains('DefaultPlusModules')) {
-        $colTypeReturn = @('LocalGroups','LocalUsers','Processes','ScheduledTasks','Services','NetConnects','64bitProgs','32bitProgs','SystemInfo','HotFix','Uefi','BitLocker','AntiMalware','PhysicalDisk','HdVolumeStorage','SharePerms','LocalFiles')
+        $colTypeReturn = @('LocalGroups','LocalUsers','Processes','ScheduledTasks','Services','NetConnects','Programs','SystemInfo','HotFix','Uefi','BitLocker','AntiMalware','PhysicalDisk','HdVolumeStorage','SharePerms','LocalFiles')
 
         # collect All data types
         if ($colType.Contains('All')) {
@@ -1092,17 +1092,15 @@ function Collect-LocalSystemData {
     }
 
     
-    # 64-bit programs
-    if ($CollectionTypes.Contains('64bitProgs') -or $CollectionTypes.Contains('All')) {
+    # Program 32 and 64-bit directory collection
+    if ($CollectionTypes.Contains('Programs') -or $CollectionTypes.Contains('All')) {
+        # 64-bit programs
         Write-Host "Local: Getting 64-bit programs."
         Get-ChildItem -Path 'C:\Program Files' |
             Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'64-bit'}} |
 	        Export-Csv -Path programs.csv -Append -NoTypeInformation
-    }
-
     
-    # 32-bit programs
-    if ($CollectionTypes.Contains('32bitProgs') -or $CollectionTypes.Contains('All')) {
+        # 32-bit programs        
         Write-Host "Local: Getting 32-bit programs."
         Get-ChildItem -Path 'C:\Program Files (x86)' |
             Select-Object @{Name='PSComputerName'; Expression={$env:COMPUTERNAME}},Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,@{Name='ProgramType'; Expression={'32-bit'}} |
@@ -1961,8 +1959,9 @@ function Collect-RemoteSystemData {
         }
 
 
-        # 64-bit programs
-        if ($CollectionTypes.Contains('64bitProgs') -or $CollectionTypes.Contains('All')) {
+        # Program 32 and 64-bit directory collection
+        if ($CollectionTypes.Contains('Programs') -or $CollectionTypes.Contains('All')) {
+            # 64-bit programs
             Write-Host "Remoting: Getting 64-bit programs."
             Get-BrokenPSSessions 'Programs64'
 
@@ -1974,11 +1973,8 @@ function Collect-RemoteSystemData {
                            } |
 	            Select-Object PSComputerName,Name,CreationTime,LastAccessTime,LastWriteTime,Attributes,ProgramType |
                 Export-Csv -Path programs.csv -Append -NoTypeInformation
-        }
 
-
-        # 32-bit programs
-        if ($CollectionTypes.Contains('32bitProgs') -or $CollectionTypes.Contains('All')) {
+            # 32-bit programs
             Write-Host "Remoting: Getting 32-bit programs."
             Get-BrokenPSSessions 'Programs32'
 
